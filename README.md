@@ -73,7 +73,7 @@ This project is built using a decoupled client-server architecture:
 3.  **Set Environment Variables**:
     Configure the backend to point to your LLM / Vectorstore endpoint:
     ```bash
-    export VECTORSTORE_URL="http://your-llm-gateway:3000"
+    export VECTORSTORE_URL="http://your-llm-gateway"
     ```
 
 4.  **Start the Backend**:
