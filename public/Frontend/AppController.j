@@ -108,7 +108,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     var leftWidth = (CGRectGetWidth([splitView bounds]) - dividerWidth) * 0.65;
     var rightWidth = (CGRectGetWidth([splitView bounds]) - dividerWidth) - leftWidth;
 
-    // LEFT: Document Editor Scroll View (Responsive wrapping)
+    // LEFT: Document Editor Scroll View
     var editorScroll = [[CPScrollView alloc] initWithFrame:CGRectMake(0, 0, leftWidth, splitHeight)];
     [editorScroll setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
     [editorScroll setAutohidesScrollers:YES];
@@ -266,18 +266,15 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
         return;
     }
 
-    // Split text by paragraphs
     var paragraphs = documentText.split(/\n\n+/);
     _totalParagraphs = paragraphs.length;
     _completedParagraphs = 0;
 
-    // Initialize array with empty placeholders representing the document structure
     _paragraphsData = [];
     for (var i = 0; i < _totalParagraphs; i++) {
         _paragraphsData.push({ "text": paragraphs[i], "alerts": [], "completed": false });
     }
 
-    // Reset display structures
     [_alertCardsMap removeAllObjects];
     _currentHighlightedCard = nil;
     
@@ -287,7 +284,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [textStorage removeAttribute:CorrectionAlertIdentifierAttributeName range:completeDocRange];
     [[_sidebarDocumentView subviews] makeObjectsPerformSelector:@selector(removeFromSuperview)];
 
-    // Configure UI controls
     [_progressBar setHidden:NO];
     [_progressBar setMaxValue:_totalParagraphs];
     [_progressBar setDoubleValue:0];
@@ -299,7 +295,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
     var runId = [[_languagePopUp selectedItem] tag] || 48;
 
-    // Dispatch parallel requests for each paragraph block
     for (var i = 0; i < _totalParagraphs; i++) {
         [self analyzeParagraph:paragraphs[i] index:i runId:runId];
     }
@@ -344,7 +339,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
             };
         }
 
-        // Incrementally update layout with results received so far in their correct positions
         [self renderHighlightsAndSidebar];
 
         if (_completedParagraphs === _totalParagraphs) {
@@ -390,7 +384,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
             var alert = alerts[j];
             var absRange = CPMakeRange(absoluteParaOffset + alert.offset, alert.length);
 
-            // Determine Colors based on error classification
             var highlightColor = [CPColor colorWithRed:1.0 green:0.90 blue:0.90 alpha:1.0]; // Spelling
             if (alert.category === @"grammar") {
                 highlightColor = [CPColor colorWithRed:0.90 green:0.95 blue:1.0 alpha:1.0]; // Grammar
@@ -403,7 +396,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
             [textStorage addAttribute:CPBackgroundColorAttributeName value:highlightColor range:absRange];
             [textStorage addAttribute:CorrectionAlertIdentifierAttributeName value:alert.id range:absRange];
 
-            // Render visual card
             var card = [self createAlertCardFrame:CGRectMake(10, currentY, sidebarWidth, 110) forAlert:alert paragraphIndex:i];
             [_sidebarDocumentView addSubview:card];
             
@@ -430,7 +422,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     var container = [cardBox contentView];
     var contentWidth = CGRectGetWidth([container bounds]);
 
-    // Color Setup: Fills & Accents matching categories
     var cardBgColor = [CPColor colorWithRed:1.0 green:0.90 blue:0.90 alpha:1.0]; // Spelling
     var accentColor = [CPColor colorWithRed:1.0 green:0.40 blue:0.40 alpha:1.0];
     
@@ -447,13 +438,11 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
     [cardBox setFillColor:cardBgColor];
 
-    // Accent strip
     var accentStrip = [[CPView alloc] initWithFrame:CGRectMake(0, 0, 5, CGRectGetHeight(frame))];
     [accentStrip setBackgroundColor:accentColor];
     [accentStrip setAutoresizingMask:CPViewMinXMargin | CPViewHeightSizable];
     [cardBox addSubview:accentStrip];
 
-    // Selection trigger button overlay
     var bgSelectBtn = [[CPButton alloc] initWithFrame:CGRectMake(0, 0, CGRectGetWidth(frame), CGRectGetHeight(frame))];
     [bgSelectBtn setBezelStyle:CPBorderlessBridgeWindowMask];
     [bgSelectBtn setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
@@ -462,7 +451,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     bgSelectBtn._representedObject = { "alert": alert, "paragraphIndex": pIndex };
     [cardBox addSubview:bgSelectBtn];
 
-    // Description
     var description = [[CPTextField alloc] initWithFrame:CGRectMake(15, 5, contentWidth - 25, 45)];
     [description setStringValue:alert.explanation];
     [description setLineBreakMode:CPLineBreakByWordWrapping];
@@ -470,7 +458,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [description setTextColor:[CPColor colorWithWhite:0.25 alpha:1.0]];
     [container addSubview:description];
 
-    // Correction Suggestion Action Button
     var actionBtn = [[CPButton alloc] initWithFrame:CGRectMake(15, 52, contentWidth - 50, 26)];
     [actionBtn setTitle:[CPString stringWithFormat:@"Correct to: '%@'", alert.suggested_text]];
     [actionBtn setFont:[CPFont boldSystemFontOfSize:11.0]];
@@ -500,6 +487,10 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
     var absRange = CPMakeRange(absoluteParaOffset + alert.offset, alert.length);
     [_editorTextView setSelectedRange:absRange];
+    
+    // Scrollt den Editor-Textbereich zur selektierten Passage
+    [_editorTextView scrollRangeToVisible:absRange];
+    
     [[_editorTextView window] makeFirstResponder:_editorTextView];
 }
 
@@ -599,6 +590,11 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [pData.alerts removeObject:alert];
 
     [self renderHighlightsAndSidebar];
+    
+    // Hält den korrigierten Bereich im Fokus
+    var newRange = CPMakeRange(absoluteParaOffset + alert.offset, [alert.suggested_text length]);
+    [_editorTextView scrollRangeToVisible:newRange];
+
     [_statusLabel setStringValue:@"Correction successfully applied."];
 }
 
