@@ -7,7 +7,7 @@ This project is built using a decoupled client-server architecture:
 *   **Backend**: A lightweight asynchronous API gateway built on **Mojolicious::Lite (Perl)**.
 
 ---
-<img width="999" height="832" alt="Bildschirmfoto 2026-05-23 um 19 24 22" src="https://github.com/user-attachments/assets/1886bbac-d3a0-4e14-8844-28239c3c3528" />
+<img width="1011" height="837" alt="Bildschirmfoto 2026-05-23 um 19 35 44" src="https://github.com/user-attachments/assets/57864753-bbd3-4ac8-8c76-0979b2eb6f8b" />
 
 ## Key Features
 
@@ -73,7 +73,7 @@ This project is built using a decoupled client-server architecture:
 3.  **Set Environment Variables**:
     Configure the backend to point to your LLM / Vectorstore endpoint:
     ```bash
-    export VECTORSTORE_URL="http://your-llm-gateway:3000"
+    export VECTORSTORE_URL="http://your-llm-gateway"
     ```
 
 4.  **Start the Backend**:
