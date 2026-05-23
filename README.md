@@ -79,16 +79,10 @@ This project is built using a decoupled client-server architecture:
     Run the server in development mode (using Morbo for auto-reload):
     ```bash
     morbo app.pl
-    # Server will start listening on http://localhost:3000 (or as configured in hypnotoad)
     ```
 
 5.  **Run the Frontend**:
-    Serve the frontend directory using a local web server:
-    ```bash
-    # For Python 3:
-    python3 -m http.server 8080
-    ```
-    Open `http://localhost:8080` in your browser.
+    Open `http://localhost:3000/Frontend/index.html` in your browser.
 
 ---
 
