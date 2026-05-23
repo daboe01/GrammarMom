@@ -282,7 +282,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [container addSubview:description];
 
     // Correction Suggestion Action Button
-    var actionBtn = [[CPButton alloc] initWithFrame:CGRectMake(15, 52, contentWidth - 25, 26)];
+    var actionBtn = [[CPButton alloc] initWithFrame:CGRectMake(15, 52, contentWidth - 50, 26)];
     [actionBtn setTitle:[CPString stringWithFormat:@"Correct to: '%@'", alert.suggested_text]];
     [actionBtn setFont:[CPFont boldSystemFontOfSize:11.0]];
     [actionBtn setTarget:self];
