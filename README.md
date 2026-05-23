@@ -7,7 +7,7 @@ This project is built using a decoupled client-server architecture:
 *   **Backend**: A lightweight asynchronous API gateway built on **Mojolicious::Lite (Perl)**.
 
 ---
-<img width="1011" height="817" alt="Bildschirmfoto 2026-05-23 um 19 29 06" src="https://github.com/user-attachments/assets/696335dd-a85e-4d69-8eef-8c7e4950d6a4" />
+<img width="1011" height="837" alt="Bildschirmfoto 2026-05-23 um 19 35 44" src="https://github.com/user-attachments/assets/57864753-bbd3-4ac8-8c76-0979b2eb6f8b" />
 
 ## Key Features
 
