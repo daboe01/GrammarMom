@@ -7,16 +7,25 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
 @implementation AppController : CPObject
 {
-    CPTextView       _editorTextView;
-    CPScrollView     _sidebarScrollView;
-    CPView           _sidebarDocumentView;
-    CPButton         _analyzeButton;
-    CPPopUpButton    _languagePopUp;
-    CPTextField      _statusLabel;
+    CPTextView          _editorTextView;
+    CPScrollView        _sidebarScrollView;
+    CPView              _sidebarDocumentView;
+    CPButton            _analyzeButton;
+    CPPopUpButton       _languagePopUp;
+    CPTextField         _statusLabel;
+    
+    // Progress & Sheet Controls
+    CPProgressIndicator _progressBar;
+    CPButton            _transferButton;
+    CPWindow            _sheetWindow;
+    CPTextView          _sheetTextView;
 
-    CPArray          _paragraphsData;  // Cached structured backend responses
-    CPDictionary     _alertCardsMap;   // Maps alert IDs to their sidebar visual card boxes
-    CPBox            _currentHighlightedCard; // Currently active/selected card in sidebar
+    CPArray             _paragraphsData;  // Cached structured backend responses
+    CPDictionary        _alertCardsMap;   // Maps alert IDs to their sidebar visual card boxes
+    CPBox               _currentHighlightedCard; // Currently active/selected card in sidebar
+    
+    int                 _totalParagraphs;
+    int                 _completedParagraphs;
 }
 
 - (void)orderFrontFontPanel:(id)sender
@@ -61,17 +70,32 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [topBar addSubview:_analyzeButton];
 
     // Language Selector Popup
-    _languagePopUp = [[CPPopUpButton alloc] initWithFrame:CGRectMake(165, 12, 110, 26) pullsDown:NO];
+    _languagePopUp = [[CPPopUpButton alloc] initWithFrame:CGRectMake(165, 12, 95, 26) pullsDown:NO];
     [_languagePopUp addItemWithTitle:@"English"];
     [[_languagePopUp lastItem] setTag:48];
     [_languagePopUp addItemWithTitle:@"Deutsch"];
     [[_languagePopUp lastItem] setTag:49];
     [topBar addSubview:_languagePopUp];
 
+    // Unified Session Import/Export Button
+    _transferButton = [[CPButton alloc] initWithFrame:CGRectMake(270, 12, 140, 26)];
+    [_transferButton setTitle:@"Import / Export JSON"];
+    [_transferButton setTarget:self];
+    [_transferButton setAction:@selector(openTransferSheet:)];
+    [topBar addSubview:_transferButton];
+
+    // Progress Bar
+    _progressBar = [[CPProgressIndicator alloc] initWithFrame:CGRectMake(425, 18, 140, 14)];
+    [_progressBar setStyle:CPProgressIndicatorBarStyle];
+    [_progressBar setIndeterminate:NO];
+    [_progressBar setHidden:YES];
+    [topBar addSubview:_progressBar];
+
     // Status Label
-    _statusLabel = [[CPTextField alloc] initWithFrame:CGRectMake(290, 15, 350, 20)];
+    _statusLabel = [[CPTextField alloc] initWithFrame:CGRectMake(575, 15, 450, 20)];
     [_statusLabel setStringValue:@"Enter narrative text below and run validation."];
     [_statusLabel setFont:[CPFont systemFontOfSize:12]];
+    [_statusLabel setAutoresizingMask:CPViewWidthSizable];
     [topBar addSubview:_statusLabel];
 
     // --- MAIN WORKING LAYOUT (SPLIT VIEW) ---
@@ -122,6 +146,118 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [_editorTextView setString:@"Welcome to the GrammarMom Editor, the best place to write what's important.\n\nRed underlines mean that Grammarly has spotted a mistake in your writing. You'll see one if you mispell something. If you're worry about typos or grammatical errors that could effect your credibility, suggestions will helps you fix those to."];
 }
 
+// --- UNIFIED IMPORT & EXPORT SESSION DATA ---
+
+- (void)openTransferSheet:(id)sender
+{
+    if (!_sheetWindow)
+    {
+        _sheetWindow = [[CPWindow alloc] initWithContentRect:CGRectMake(0, 0, 580, 460)
+                                                   styleMask:CPTitledWindowMask | CPClosableWindowMask | CPResizableWindowMask];
+        
+        var sheetContentView = [_sheetWindow contentView];
+        var sheetBounds = [sheetContentView bounds];
+
+        // Description Label
+        var infoLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 10, CGRectGetWidth(sheetBounds) - 30, 45)];
+        [infoLabel setStringValue:@"To export, copy the JSON block below. To import a past run, replace the JSON content below and click \"Import JSON\"."];
+        [infoLabel setFont:[CPFont systemFontOfSize:11.0]];
+        [infoLabel setTextColor:[CPColor colorWithWhite:0.3 alpha:1.0]];
+        [infoLabel setLineBreakMode:CPLineBreakByWordWrapping];
+        [infoLabel setAutoresizingMask:CPViewWidthSizable | CPViewMaxYMargin];
+        [sheetContentView addSubview:infoLabel];
+
+        // Scroll View for JSON text area
+        var scroll = [[CPScrollView alloc] initWithFrame:CGRectMake(15, 60, CGRectGetWidth(sheetBounds) - 30, CGRectGetHeight(sheetBounds) - 130)];
+        [scroll setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
+        [scroll setAutohidesScrollers:YES];
+
+        _sheetTextView = [[CPTextView alloc] initWithFrame:[scroll bounds]];
+        [_sheetTextView setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
+        [_sheetTextView setFont:[CPFont fontWithName:@"Courier" size:11.0]];
+        [_sheetTextView setRichText:NO];
+        [scroll setDocumentView:_sheetTextView];
+        [sheetContentView addSubview:scroll];
+
+        // Bottom Buttons
+        var btnY = CGRectGetHeight(sheetBounds) - 50;
+
+        var cancelBtn = [[CPButton alloc] initWithFrame:CGRectMake(CGRectGetWidth(sheetBounds) - 235, btnY, 110, 26)];
+        [cancelBtn setTitle:@"Cancel / Close"];
+        [cancelBtn setAutoresizingMask:CPViewMinXMargin | CPViewMinYMargin];
+        [cancelBtn setTarget:self];
+        [cancelBtn setAction:@selector(closeSheet:)];
+        [sheetContentView addSubview:cancelBtn];
+
+        var actionBtn = [[CPButton alloc] initWithFrame:CGRectMake(CGRectGetWidth(sheetBounds) - 115, btnY, 100, 26)];
+        [actionBtn setTitle:@"Import JSON"];
+        [actionBtn setAutoresizingMask:CPViewMinXMargin | CPViewMinYMargin];
+        [actionBtn setTarget:self];
+        [actionBtn setAction:@selector(executeImportAction:)];
+        [sheetContentView addSubview:actionBtn];
+    }
+
+    [_sheetWindow setTitle:@"Transfer Session Data (JSON)"];
+    [_sheetTextView setEditable:YES];
+
+    // Assemble document structure and validation response mapping into transfer JSON
+    var sessionState = {
+        "editorText": [_editorTextView string],
+        "paragraphsData": _paragraphsData || []
+    };
+    
+    var jsonString = JSON.stringify(sessionState, null, 2);
+    [_sheetTextView setString:jsonString];
+
+    [CPApp beginSheet:_sheetWindow
+        modalForWindow:[_editorTextView window]
+         modalDelegate:self
+        didEndSelector:nil
+           contextInfo:nil];
+           
+    window.setTimeout(function() { [_sheetTextView selectAll:self]; }, 100);
+}
+
+- (void)closeSheet:(id)sender
+{
+    [CPApp endSheet:_sheetWindow];
+    [_sheetWindow orderOut:self];
+}
+
+- (void)executeImportAction:(id)sender
+{
+    var text = [_sheetTextView string];
+    if (text && [text length] > 0)
+    {
+        try {
+            var sessionData = JSON.parse(text);
+            if (sessionData && typeof sessionData === "object") {
+                if (sessionData.editorText !== undefined) {
+                    [_editorTextView setString:sessionData.editorText];
+                }
+                
+                if (sessionData.paragraphsData && Array.isArray(sessionData.paragraphsData)) {
+                    _paragraphsData = sessionData.paragraphsData;
+                } else {
+                    _paragraphsData = [];
+                }
+
+                // Render highlighting and populate sidebar container directly
+                [self renderHighlightsAndSidebar];
+                [_statusLabel setStringValue:@"Session state loaded successfully."];
+            } else {
+                [_statusLabel setStringValue:@"Failed to load state: invalid structure format."];
+            }
+        } catch (e) {
+            [_statusLabel setStringValue:@"JSON structural format analysis failed."];
+            CPLog.error(@"JSON Parsing Exception: " + e.message);
+        }
+    }
+    [self closeSheet:sender];
+}
+
+// --- PROGRESSIVE DOCUMENT ANALYSIS ---
+
 - (void)analyzeDocument:(id)sender
 {
     var documentText = [_editorTextView string];
@@ -130,16 +266,52 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
         return;
     }
 
-    [_analyzeButton setEnabled:NO];
-    [_statusLabel setStringValue:@"Analyzing document clarity and correctness..."];
+    // Split text by paragraphs
+    var paragraphs = documentText.split(/\n\n+/);
+    _totalParagraphs = paragraphs.length;
+    _completedParagraphs = 0;
 
-    var request = [CPURLRequest requestWithURL:@"/DBB/analyze_text"];
-    [request setHTTPMethod:@"POST"];
-    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    // Initialize array with empty placeholders representing the document structure
+    _paragraphsData = [];
+    for (var i = 0; i < _totalParagraphs; i++) {
+        _paragraphsData.push({ "text": paragraphs[i], "alerts": [], "completed": false });
+    }
+
+    // Reset display structures
+    [_alertCardsMap removeAllObjects];
+    _currentHighlightedCard = nil;
+    
+    var textStorage = [_editorTextView textStorage];
+    var completeDocRange = CPMakeRange(0, [textStorage length]);
+    [textStorage removeAttribute:CPBackgroundColorAttributeName range:completeDocRange];
+    [textStorage removeAttribute:CorrectionAlertIdentifierAttributeName range:completeDocRange];
+    [[_sidebarDocumentView subviews] makeObjectsPerformSelector:@selector(removeFromSuperview)];
+
+    // Configure UI controls
+    [_progressBar setHidden:NO];
+    [_progressBar setMaxValue:_totalParagraphs];
+    [_progressBar setDoubleValue:0];
+
+    [_analyzeButton setEnabled:NO];
+    [_languagePopUp setEnabled:NO];
+    [_transferButton setEnabled:NO];
+    [_statusLabel setStringValue:@"Analyzing document... Progress: 0%"];
 
     var runId = [[_languagePopUp selectedItem] tag] || 48;
 
-    var payload = { "text": documentText, "run_id": runId };
+    // Dispatch parallel requests for each paragraph block
+    for (var i = 0; i < _totalParagraphs; i++) {
+        [self analyzeParagraph:paragraphs[i] index:i runId:runId];
+    }
+}
+
+- (void)analyzeParagraph:(CPString)pText index:(int)pIndex runId:(int)runId
+{
+    var request = [CPURLRequest requestWithURL:@"/DBB/analyze_paragraph"];
+    [request setHTTPMethod:@"POST"];
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+
+    var payload = { "text": pText, "paragraph_index": pIndex, "run_id": runId };
     var postData = [CPString stringWithString:JSON.stringify(payload)];
     [request setHTTPBody:postData];
 
@@ -147,23 +319,41 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
                                        queue:[CPOperationQueue mainQueue]
                            completionHandler:function(response, data, error)
     {
-        [_analyzeButton setEnabled:YES];
+        _completedParagraphs++;
+        [_progressBar setDoubleValue:_completedParagraphs];
 
-        if (error || !data) {
-            [_statusLabel setStringValue:@"Error connecting to processing engine."];
-            return;
+        var percent = Math.round((_completedParagraphs / _totalParagraphs) * 100);
+        [_statusLabel setStringValue:@"Analyzing document... Progress: " + percent + "%"];
+
+        if (!error && data) {
+            try {
+                var result = JSON.parse(data);
+                _paragraphsData[pIndex] = {
+                    "text": result.text,
+                    "alerts": result.alerts,
+                    "completed": true
+                };
+            } catch (e) {
+                CPLog.error(@"JSON Parsing Exception: " + e.message);
+            }
+        } else {
+            _paragraphsData[pIndex] = {
+                "text": pText,
+                "alerts": [],
+                "completed": true
+            };
         }
 
-        try {
-            var result = JSON.parse(data);
-        } catch (e) {
-            [_statusLabel setStringValue:@"Error decoding syntax engine responses."];
-            CPLog.error(@"JSON Parsing Exception: " + e.message);
-        }
-
-        _paragraphsData = result.paragraphs;
+        // Incrementally update layout with results received so far in their correct positions
         [self renderHighlightsAndSidebar];
-        [_statusLabel setStringValue:@"Analysis finalized. Correct highlighted segments."];
+
+        if (_completedParagraphs === _totalParagraphs) {
+            [_analyzeButton setEnabled:YES];
+            [_languagePopUp setEnabled:YES];
+            [_transferButton setEnabled:YES];
+            [_progressBar setHidden:YES];
+            [_statusLabel setStringValue:@"Analysis finalized. Correct highlighted segments."];
+        }
     }];
 }
 
@@ -185,6 +375,9 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
     for (var i = 0; i < _paragraphsData.length; i++) {
         var pData = _paragraphsData[i];
+        if (!pData || !pData.completed) {
+            continue;
+        }
         var pText = pData.text;
 
         var absoluteParaOffset = [docString rangeOfString:pText].location;
@@ -195,7 +388,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
         var alerts = pData.alerts;
         for (var j = 0; j < alerts.length; j++) {
             var alert = alerts[j];
-
             var absRange = CPMakeRange(absoluteParaOffset + alert.offset, alert.length);
 
             // Determine Colors based on error classification
@@ -227,13 +419,11 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 {
     var cardBox = [[CPBox alloc] initWithFrame:frame];
     
-    // Config as seen in CPBox.j to enable Custom Background Fills
     [cardBox setBoxType:CPBoxCustom];
     [cardBox setBorderType:CPLineBorder];
     [cardBox setBorderWidth:1.0];
     [cardBox setBorderColor:[CPColor colorWithWhite:0.85 alpha:1.0]];
     [cardBox setCornerRadius:5.0];
-    
     [cardBox setTitle:alert.title];
     [cardBox setAutoresizingMask:CPViewWidthSizable];
 
@@ -255,25 +445,24 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
         accentColor = [CPColor colorWithRed:0.70 green:0.30 blue:0.90 alpha:1.0];
     }
 
-    // Assign the matching color as the box background
     [cardBox setFillColor:cardBgColor];
 
-    // --- VISUAL ACCENT STRIP ---
+    // Accent strip
     var accentStrip = [[CPView alloc] initWithFrame:CGRectMake(0, 0, 5, CGRectGetHeight(frame))];
     [accentStrip setBackgroundColor:accentColor];
     [accentStrip setAutoresizingMask:CPViewMinXMargin | CPViewHeightSizable];
     [cardBox addSubview:accentStrip];
 
-    // --- SELECT EVENT TRIGGER (Makes entire background of the card clickable) ---
+    // Selection trigger button overlay
     var bgSelectBtn = [[CPButton alloc] initWithFrame:CGRectMake(0, 0, CGRectGetWidth(frame), CGRectGetHeight(frame))];
     [bgSelectBtn setBezelStyle:CPBorderlessBridgeWindowMask];
     [bgSelectBtn setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
     [bgSelectBtn setTarget:self];
     [bgSelectBtn setAction:@selector(selectAlertTextAction:)];
     bgSelectBtn._representedObject = { "alert": alert, "paragraphIndex": pIndex };
-    [cardBox addSubview:bgSelectBtn]; // Placed at index 0 (behind standard controls)
+    [cardBox addSubview:bgSelectBtn];
 
-    // Issue Description Area
+    // Description
     var description = [[CPTextField alloc] initWithFrame:CGRectMake(15, 5, contentWidth - 25, 45)];
     [description setStringValue:alert.explanation];
     [description setLineBreakMode:CPLineBreakByWordWrapping];
@@ -293,7 +482,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     return cardBox;
 }
 
-// Action: Card click selects text and makes editor primary responder
 - (void)selectAlertTextAction:(id)sender
 {
     var context = sender._representedObject;
@@ -302,20 +490,19 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
     var docString = [_editorTextView string];
     var pData = _paragraphsData[pIndex];
+    if (!pData) return;
+    
     var pText = pData.text;
-
     var absoluteParaOffset = [docString rangeOfString:pText].location;
     if (absoluteParaOffset === CPNotFound) {
         return;
     }
 
     var absRange = CPMakeRange(absoluteParaOffset + alert.offset, alert.length);
-    
     [_editorTextView setSelectedRange:absRange];
     [[_editorTextView window] makeFirstResponder:_editorTextView];
 }
 
-// Delegate: Editor selection triggers localized sidebar box highlight (thick matching border)
 - (void)textViewDidChangeSelection:(CPNotification)aNotification
 {
     var selectedRange = [_editorTextView selectedRange];
@@ -326,7 +513,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     var docString = [_editorTextView string];
     var cursorLoc = selectedRange.location;
 
-    // Reset previous selection borders to standard soft-gray
     if (_currentHighlightedCard) {
         [_currentHighlightedCard setBorderWidth:1.0];
         [_currentHighlightedCard setBorderColor:[CPColor colorWithWhite:0.85 alpha:1.0]];
@@ -335,8 +521,9 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
     for (var i = 0; i < _paragraphsData.length; i++) {
         var pData = _paragraphsData[i];
+        if (!pData || !pData.completed) continue;
+        
         var pText = pData.text;
-
         var absoluteParaOffset = [docString rangeOfString:pText].location;
         if (absoluteParaOffset === CPNotFound) {
             continue;
@@ -351,23 +538,19 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
             if (cursorLoc >= alertStart && cursorLoc <= alertEnd) {
                 var activeCard = [_alertCardsMap objectForKey:alert.id];
                 if (activeCard) {
-                    
-                    // Determine deep accent border color based on focus
-                    var strongBorderColor = [CPColor colorWithRed:1.0 green:0.40 blue:0.40 alpha:1.0]; // Spelling (Red)
+                    var strongBorderColor = [CPColor colorWithRed:1.0 green:0.40 blue:0.40 alpha:1.0];
                     if (alert.category === @"grammar") {
-                        strongBorderColor = [CPColor colorWithRed:0.20 green:0.60 blue:1.0 alpha:1.0]; // Grammar (Blue)
+                        strongBorderColor = [CPColor colorWithRed:0.20 green:0.60 blue:1.0 alpha:1.0];
                     } else if (alert.category === @"clarity") {
-                        strongBorderColor = [CPColor colorWithRed:0.20 green:0.80 blue:0.20 alpha:1.0]; // Clarity (Green)
+                        strongBorderColor = [CPColor colorWithRed:0.20 green:0.80 blue:0.20 alpha:1.0];
                     } else if (alert.category === @"style") {
-                        strongBorderColor = [CPColor colorWithRed:0.70 green:0.30 blue:0.90 alpha:1.0]; // Style (Purple)
+                        strongBorderColor = [CPColor colorWithRed:0.70 green:0.30 blue:0.90 alpha:1.0];
                     }
 
-                    // Highlight by adding a thick category border without overwriting the pastel background fill
                     [activeCard setBorderWidth:2.5];
                     [activeCard setBorderColor:strongBorderColor];
                     _currentHighlightedCard = activeCard;
 
-                    // Automatically scroll sidebar viewport
                     var cardFrame = [activeCard frame];
                     [[_sidebarScrollView contentView] scrollToPoint:CGPointMake(0, MAX(0, cardFrame.origin.y - 15))];
                 }
@@ -385,8 +568,9 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
     var docString = [_editorTextView string];
     var pData = _paragraphsData[pIndex];
+    if (!pData) return;
+    
     var pText = pData.text;
-
     var absoluteParaOffset = [docString rangeOfString:pText].location;
     if (absoluteParaOffset === CPNotFound) {
         [_statusLabel setStringValue:@"Context mismatch. Please re-run check."];
