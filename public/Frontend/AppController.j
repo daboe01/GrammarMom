@@ -84,13 +84,12 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     var leftWidth = (CGRectGetWidth([splitView bounds]) - dividerWidth) * 0.65;
     var rightWidth = (CGRectGetWidth([splitView bounds]) - dividerWidth) - leftWidth;
 
-    // LEFT: Document Editor Scroll View
+    // LEFT: Document Editor Scroll View (Responsive wrapping)
     var editorScroll = [[CPScrollView alloc] initWithFrame:CGRectMake(0, 0, leftWidth, splitHeight)];
     [editorScroll setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
     [editorScroll setAutohidesScrollers:YES];
-    [editorScroll setHasHorizontalScroller:NO]; // Disable horizontal scrolling to enforce wrapping
+    [editorScroll setHasHorizontalScroller:NO];
 
-    // Text Editor Configuration (Responsive text wrapping)
     _editorTextView = [[CPTextView alloc] initWithFrame:[editorScroll bounds]];
     [_editorTextView setAutoresizingMask:CPViewWidthSizable];
     [_editorTextView setMinSize:CGSizeMake(0, 0)];
@@ -99,7 +98,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [_editorTextView setVerticallyResizable:YES];
     [_editorTextView setRichText:YES];
     [_editorTextView setFont:[CPFont fontWithName:@"Arial" size:14.0]];
-    [_editorTextView setDelegate:self]; // Listen to cursor selection events
+    [_editorTextView setDelegate:self];
     
     [editorScroll setDocumentView:_editorTextView];
     [splitView addSubview:editorScroll];
@@ -120,7 +119,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [theWindow orderFront:self];
 
     // Sample initial text block
-    [_editorTextView setString:@"Welcome to the GrammarMom Editor, the best place to write what's important.\n\nRed underlines mean that Grammarly has spotted a mistake in your writing. You'll see one if you mispell something. If you're worry about typos or grammatical errors that could effect your credibility, suggestions will helps you fix those to."];
+    [_editorTextView setString:@"Welcome to the Grammarly Editor, the best place to write what's important.\n\nRed underlines mean that Grammarly has spotted a mistake in your writing. You'll see one if you mispell something. If you're worry about typos or grammatical errors that could effect your credibility, suggestions will helps you fix those to."];
 }
 
 - (void)analyzeDocument:(id)sender
@@ -170,7 +169,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
 - (void)renderHighlightsAndSidebar
 {
-    // Reset selection cache
     [_alertCardsMap removeAllObjects];
     _currentHighlightedCard = nil;
 
@@ -200,7 +198,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
             var absRange = CPMakeRange(absoluteParaOffset + alert.offset, alert.length);
 
-            // Determine Highlight Colors
+            // Determine Colors based on error classification
             var highlightColor = [CPColor colorWithRed:1.0 green:0.90 blue:0.90 alpha:1.0]; // Spelling
             if (alert.category === @"grammar") {
                 highlightColor = [CPColor colorWithRed:0.90 green:0.95 blue:1.0 alpha:1.0]; // Grammar
@@ -217,9 +215,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
             var card = [self createAlertCardFrame:CGRectMake(10, currentY, sidebarWidth, 110) forAlert:alert paragraphIndex:i];
             [_sidebarDocumentView addSubview:card];
             
-            // Map the alert ID to its respective visual CPBox for fast programmatic highlighting
             [_alertCardsMap setObject:card forKey:alert.id];
-            
             currentY += 125;
         }
     }
@@ -230,46 +226,63 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 - (CPView)createAlertCardFrame:(CGRect)frame forAlert:(id)alert paragraphIndex:(int)pIndex
 {
     var cardBox = [[CPBox alloc] initWithFrame:frame];
+    
+    // Config as seen in CPBox.j to enable Custom Background Fills
+    [cardBox setBoxType:CPBoxCustom];
+    [cardBox setBorderType:CPLineBorder];
+    [cardBox setBorderWidth:1.0];
+    [cardBox setBorderColor:[CPColor colorWithWhite:0.85 alpha:1.0]];
+    [cardBox setCornerRadius:5.0];
+    
     [cardBox setTitle:alert.title];
     [cardBox setAutoresizingMask:CPViewWidthSizable];
 
     var container = [cardBox contentView];
     var contentWidth = CGRectGetWidth([container bounds]);
 
-    // --- VISUAL ACCENT STRIP (Connects sidebar to text category colors) ---
-    var accentColor = [CPColor colorWithRed:1.0 green:0.40 blue:0.40 alpha:1.0]; // Spelling (Red Accent)
+    // Color Setup: Fills & Accents matching categories
+    var cardBgColor = [CPColor colorWithRed:1.0 green:0.90 blue:0.90 alpha:1.0]; // Spelling
+    var accentColor = [CPColor colorWithRed:1.0 green:0.40 blue:0.40 alpha:1.0];
+    
     if (alert.category === @"grammar") {
-        accentColor = [CPColor colorWithRed:0.20 green:0.60 blue:1.0 alpha:1.0]; // Grammar (Blue Accent)
+        cardBgColor = [CPColor colorWithRed:0.90 green:0.95 blue:1.0 alpha:1.0];
+        accentColor = [CPColor colorWithRed:0.20 green:0.60 blue:1.0 alpha:1.0];
     } else if (alert.category === @"clarity") {
-        accentColor = [CPColor colorWithRed:0.20 green:0.80 blue:0.20 alpha:1.0]; // Clarity (Green Accent)
+        cardBgColor = [CPColor colorWithRed:0.92 green:1.0 blue:0.92 alpha:1.0];
+        accentColor = [CPColor colorWithRed:0.20 green:0.80 blue:0.20 alpha:1.0];
     } else if (alert.category === @"style") {
-        accentColor = [CPColor colorWithRed:0.70 green:0.30 blue:0.90 alpha:1.0]; // Style (Purple Accent)
+        cardBgColor = [CPColor colorWithRed:0.97 green:0.92 blue:1.0 alpha:1.0];
+        accentColor = [CPColor colorWithRed:0.70 green:0.30 blue:0.90 alpha:1.0];
     }
 
+    // Assign the matching color as the box background
+    [cardBox setFillColor:cardBgColor];
+
+    // --- VISUAL ACCENT STRIP ---
     var accentStrip = [[CPView alloc] initWithFrame:CGRectMake(0, 0, 5, CGRectGetHeight(frame))];
     [accentStrip setBackgroundColor:accentColor];
     [accentStrip setAutoresizingMask:CPViewMinXMargin | CPViewHeightSizable];
     [cardBox addSubview:accentStrip];
 
-    // --- SELECT EVENT TRIGGER (Makes card body clickable to focus the text) ---
+    // --- SELECT EVENT TRIGGER (Makes entire background of the card clickable) ---
     var bgSelectBtn = [[CPButton alloc] initWithFrame:CGRectMake(0, 0, CGRectGetWidth(frame), CGRectGetHeight(frame))];
     [bgSelectBtn setBezelStyle:CPBorderlessBridgeWindowMask];
     [bgSelectBtn setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
     [bgSelectBtn setTarget:self];
     [bgSelectBtn setAction:@selector(selectAlertTextAction:)];
     bgSelectBtn._representedObject = { "alert": alert, "paragraphIndex": pIndex };
-    [cardBox addSubview:bgSelectBtn]; // Put behind content elements
+    [cardBox addSubview:bgSelectBtn]; // Placed at index 0 (behind standard controls)
 
-    // Issue Description Area (Non-blocking hit behavior so background button registers clicks)
-    var description = [[CPTextField alloc] initWithFrame:CGRectMake(10, 5, contentWidth - 25, 45)];
+    // Issue Description Area
+    var description = [[CPTextField alloc] initWithFrame:CGRectMake(15, 5, contentWidth - 25, 45)];
     [description setStringValue:alert.explanation];
     [description setLineBreakMode:CPLineBreakByWordWrapping];
     [description setFont:[CPFont systemFontOfSize:11.0]];
-    [description setTextColor:[CPColor colorWithWhite:0.3 alpha:1.0]];
+    [description setTextColor:[CPColor colorWithWhite:0.25 alpha:1.0]];
     [container addSubview:description];
 
     // Correction Suggestion Action Button
-    var actionBtn = [[CPButton alloc] initWithFrame:CGRectMake(10, 52, contentWidth - 25, 26)];
+    var actionBtn = [[CPButton alloc] initWithFrame:CGRectMake(15, 52, contentWidth - 25, 26)];
     [actionBtn setTitle:[CPString stringWithFormat:@"Correct to: '%@'", alert.suggested_text]];
     [actionBtn setFont:[CPFont boldSystemFontOfSize:11.0]];
     [actionBtn setTarget:self];
@@ -280,7 +293,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     return cardBox;
 }
 
-// Action: Selecting a card highlights and focuses the text segment
+// Action: Card click selects text and makes editor primary responder
 - (void)selectAlertTextAction:(id)sender
 {
     var context = sender._representedObject;
@@ -298,12 +311,11 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
     var absRange = CPMakeRange(absoluteParaOffset + alert.offset, alert.length);
     
-    // Perform selection
     [_editorTextView setSelectedRange:absRange];
     [[_editorTextView window] makeFirstResponder:_editorTextView];
 }
 
-// Delegate: Clicked / Cursor placement in Highlighted text updates Sidebar selection
+// Delegate: Editor selection triggers localized sidebar box highlight (thick matching border)
 - (void)textViewDidChangeSelection:(CPNotification)aNotification
 {
     var selectedRange = [_editorTextView selectedRange];
@@ -311,17 +323,16 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
         return;
     }
 
-    var textStorage = [_editorTextView textStorage];
     var docString = [_editorTextView string];
     var cursorLoc = selectedRange.location;
 
-    // Reset currently highlighted card visual background
+    // Reset previous selection borders to standard soft-gray
     if (_currentHighlightedCard) {
-        [_currentHighlightedCard setBackgroundColor:[CPColor clearColor]];
+        [_currentHighlightedCard setBorderWidth:1.0];
+        [_currentHighlightedCard setBorderColor:[CPColor colorWithWhite:0.85 alpha:1.0]];
         _currentHighlightedCard = nil;
     }
 
-    // Identify which alert key corresponds to the selection range
     for (var i = 0; i < _paragraphsData.length; i++) {
         var pData = _paragraphsData[i];
         var pText = pData.text;
@@ -337,15 +348,26 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
             var alertStart = absoluteParaOffset + alert.offset;
             var alertEnd = alertStart + alert.length;
 
-            // If the cursor falls inside the highlighted boundaries
             if (cursorLoc >= alertStart && cursorLoc <= alertEnd) {
                 var activeCard = [_alertCardsMap objectForKey:alert.id];
                 if (activeCard) {
-                    // Soft gray background to indicate selection focus
-                    [activeCard setBackgroundColor:[CPColor colorWithRed:0.93 green:0.93 blue:0.93 alpha:1.0]];
+                    
+                    // Determine deep accent border color based on focus
+                    var strongBorderColor = [CPColor colorWithRed:1.0 green:0.40 blue:0.40 alpha:1.0]; // Spelling (Red)
+                    if (alert.category === @"grammar") {
+                        strongBorderColor = [CPColor colorWithRed:0.20 green:0.60 blue:1.0 alpha:1.0]; // Grammar (Blue)
+                    } else if (alert.category === @"clarity") {
+                        strongBorderColor = [CPColor colorWithRed:0.20 green:0.80 blue:0.20 alpha:1.0]; // Clarity (Green)
+                    } else if (alert.category === @"style") {
+                        strongBorderColor = [CPColor colorWithRed:0.70 green:0.30 blue:0.90 alpha:1.0]; // Style (Purple)
+                    }
+
+                    // Highlight by adding a thick category border without overwriting the pastel background fill
+                    [activeCard setBorderWidth:2.5];
+                    [activeCard setBorderColor:strongBorderColor];
                     _currentHighlightedCard = activeCard;
 
-                    // Automatically scroll the sidebar viewport smoothly
+                    // Automatically scroll sidebar viewport
                     var cardFrame = [activeCard frame];
                     [[_sidebarScrollView contentView] scrollToPoint:CGPointMake(0, MAX(0, cardFrame.origin.y - 15))];
                 }

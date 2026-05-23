@@ -1,18 +1,8 @@
-#!/usr/local/ActivePerl-5.14/site/bin/morbo
-
-# HPO Backend 08.03.2017 by Daniel Boehringer
-
 use Mojolicious::Lite;
-use Mojolicious::Plugin::Database;
-use SQL::Abstract;
-use SQL::Abstract::More;
 use Data::Dumper;
 use Mojo::UserAgent;
-use Apache::Session::File;
 use Encode;
 use Mojo::JSON qw(decode_json encode_json);
-use DBIx::Connector;
-use POSIX qw(strftime);
 
 no warnings 'uninitialized';
 
