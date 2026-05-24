@@ -5,6 +5,34 @@
 var CorrectionHighlightColorAttributeName = @"CorrectionHighlightColorAttributeName";
 var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttributeName";
 
+// Hilfsklasse für eine interaktive, neutrale Klickfläche ohne Standard-Highlighting
+@implementation AlertCardBackgroundView : CPView
+{
+    id _target;
+    SEL _action;
+    id _representedObject @accessors(property=representedObject);
+}
+
+- (void)setTarget:(id)aTarget
+{
+    _target = aTarget;
+}
+
+- (void)setAction:(SEL)anAction
+{
+    _action = anAction;
+}
+
+- (void)mouseDown:(CPEvent)anEvent
+{
+    if (_target && _action && [_target respondsToSelector:_action])
+    {
+        [_target performSelector:_action withObject:self];
+    }
+}
+
+@end
+
 @implementation AppController : CPObject
 {
     CPTextView          _editorTextView;
@@ -19,6 +47,12 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     CPButton            _transferButton;
     CPWindow            _sheetWindow;
     CPTextView          _sheetTextView;
+
+    // Ollama Settings Controls
+    CPButton            _settingsButton;
+    CPWindow            _settingsWindow;
+    CPTextField         _endpointField;
+    CPTextField         _modelField;
 
     CPArray             _paragraphsData;  // Cached structured backend responses
     CPDictionary        _alertCardsMap;   // Maps alert IDs to their sidebar visual card boxes
@@ -35,6 +69,12 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
 - (void)applicationDidFinishLaunching:(CPNotification)aNotification
 {
+    // --- PERSISTENT USER DEFAULTS INITIALIZATION ---
+    var defaults = [CPUserDefaults standardUserDefaults];
+    var defaultSettings = [CPDictionary dictionaryWithObjects:[@"http://localhost:11434/api/generate", @"gemma4:e4b"]
+                                                      forKeys:[@"OllamaEndpoint", @"OllamaModel"]];
+    [defaults registerDefaults:defaultSettings];
+
     // --- SYSTEM MENU BAR SETUP ---
     var mainMenu = [CPApp mainMenu];
     while ([mainMenu numberOfItems] > 0)
@@ -70,7 +110,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [topBar addSubview:_analyzeButton];
 
     // Language Selector Popup
-    _languagePopUp = [[CPPopUpButton alloc] initWithFrame:CGRectMake(165, 12, 95, 26) pullsDown:NO];
+    _languagePopUp = [[CPPopUpButton alloc] initWithFrame:CGRectMake(160, 12, 95, 26) pullsDown:NO];
     [_languagePopUp addItemWithTitle:@"English"];
     [[_languagePopUp lastItem] setTag:48];
     [_languagePopUp addItemWithTitle:@"Deutsch"];
@@ -78,21 +118,28 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [topBar addSubview:_languagePopUp];
 
     // Unified Session Import/Export Button
-    _transferButton = [[CPButton alloc] initWithFrame:CGRectMake(270, 12, 140, 26)];
+    _transferButton = [[CPButton alloc] initWithFrame:CGRectMake(265, 12, 140, 26)];
     [_transferButton setTitle:@"Import / Export JSON"];
     [_transferButton setTarget:self];
     [_transferButton setAction:@selector(openTransferSheet:)];
     [topBar addSubview:_transferButton];
 
+    // Ollama Configuration Button
+    _settingsButton = [[CPButton alloc] initWithFrame:CGRectMake(415, 12, 130, 26)];
+    [_settingsButton setTitle:@"Ollama Settings"];
+    [_settingsButton setTarget:self];
+    [_settingsButton setAction:@selector(openSettingsSheet:)];
+    [topBar addSubview:_settingsButton];
+
     // Progress Bar
-    _progressBar = [[CPProgressIndicator alloc] initWithFrame:CGRectMake(425, 18, 140, 14)];
+    _progressBar = [[CPProgressIndicator alloc] initWithFrame:CGRectMake(555, 18, 120, 14)];
     [_progressBar setStyle:CPProgressIndicatorBarStyle];
     [_progressBar setIndeterminate:NO];
     [_progressBar setHidden:YES];
     [topBar addSubview:_progressBar];
 
     // Status Label
-    _statusLabel = [[CPTextField alloc] initWithFrame:CGRectMake(575, 15, 450, 20)];
+    _statusLabel = [[CPTextField alloc] initWithFrame:CGRectMake(685, 15, 390, 20)];
     [_statusLabel setStringValue:@"Enter narrative text below and run validation."];
     [_statusLabel setFont:[CPFont systemFontOfSize:12]];
     [_statusLabel setAutoresizingMask:CPViewWidthSizable];
@@ -144,6 +191,97 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
     // Sample initial text block
     [_editorTextView setString:@"Welcome to the GrammarMom Editor, the best place to write what's important.\n\nRed underlines mean that Grammarly has spotted a mistake in your writing. You'll see one if you mispell something. If you're worry about typos or grammatical errors that could effect your credibility, suggestions will helps you fix those to."];
+}
+
+// --- OLLAMA SETTINGS CONFIGURATION PANEL ---
+
+- (void)openSettingsSheet:(id)sender
+{
+    if (!_settingsWindow)
+    {
+        _settingsWindow = [[CPWindow alloc] initWithContentRect:CGRectMake(0, 0, 480, 220)
+                                                   styleMask:CPTitledWindowMask | CPClosableWindowMask];
+        
+        var sheetContentView = [_settingsWindow contentView];
+        var sheetBounds = [sheetContentView bounds];
+
+        // Description Info
+        var infoLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 15, CGRectGetWidth(sheetBounds) - 30, 40)];
+        [infoLabel setStringValue:@"Configure your local or remote Ollama endpoint configuration and model identifier below."];
+        [infoLabel setFont:[CPFont systemFontOfSize:11.0]];
+        [infoLabel setTextColor:[CPColor colorWithWhite:0.3 alpha:1.0]];
+        [infoLabel setLineBreakMode:CPLineBreakByWordWrapping];
+        [sheetContentView addSubview:infoLabel];
+
+        // Endpoint Target URL
+        var endpointLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 60, 110, 20)];
+        [endpointLabel setStringValue:@"Ollama API URL:"];
+        [endpointLabel setFont:[CPFont systemFontOfSize:12.0]];
+        [endpointLabel setAlignment:CPRightTextAlignment];
+        [sheetContentView addSubview:endpointLabel];
+
+        _endpointField = [[CPTextField alloc] initWithFrame:CGRectMake(135, 57, CGRectGetWidth(sheetBounds) - 155, 24)];
+        [_endpointField setEditable:YES];
+        [_endpointField setBezeled:YES];
+        [_endpointField setFont:[CPFont systemFontOfSize:12.0]];
+        [sheetContentView addSubview:_endpointField];
+
+        // Model String Selector
+        var modelLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 95, 110, 20)];
+        [modelLabel setStringValue:@"Model Name:"];
+        [modelLabel setFont:[CPFont systemFontOfSize:12.0]];
+        [modelLabel setAlignment:CPRightTextAlignment];
+        [sheetContentView addSubview:modelLabel];
+
+        _modelField = [[CPTextField alloc] initWithFrame:CGRectMake(135, 92, CGRectGetWidth(sheetBounds) - 155, 24)];
+        [_modelField setEditable:YES];
+        [_modelField setBezeled:YES];
+        [_modelField setFont:[CPFont systemFontOfSize:12.0]];
+        [sheetContentView addSubview:_modelField];
+
+        // Action Buttons
+        var btnY = CGRectGetHeight(sheetBounds) - 45;
+
+        var cancelBtn = [[CPButton alloc] initWithFrame:CGRectMake(CGRectGetWidth(sheetBounds) - 205, btnY, 90, 26)];
+        [cancelBtn setTitle:@"Cancel"];
+        [cancelBtn setTarget:self];
+        [cancelBtn setAction:@selector(closeSettingsSheet:)];
+        [sheetContentView addSubview:cancelBtn];
+
+        var saveBtn = [[CPButton alloc] initWithFrame:CGRectMake(CGRectGetWidth(sheetBounds) - 105, btnY, 90, 26)];
+        [saveBtn setTitle:@"Save"];
+        [saveBtn setTarget:self];
+        [saveBtn setAction:@selector(saveSettings:)];
+        [sheetContentView addSubview:saveBtn];
+    }
+
+    [_settingsWindow setTitle:@"Ollama Configuration"];
+    
+    var defaults = [CPUserDefaults standardUserDefaults];
+    [_endpointField setStringValue:[defaults objectForKey:@"OllamaEndpoint"]];
+    [_modelField setStringValue:[defaults objectForKey:@"OllamaModel"]];
+
+    [CPApp beginSheet:_settingsWindow
+        modalForWindow:[_editorTextView window]
+         modalDelegate:self
+        didEndSelector:nil
+           contextInfo:nil];
+}
+
+- (void)closeSettingsSheet:(id)sender
+{
+    [CPApp endSheet:_settingsWindow];
+    [_settingsWindow orderOut:self];
+}
+
+- (void)saveSettings:(id)sender
+{
+    var defaults = [CPUserDefaults standardUserDefaults];
+    [defaults setObject:[_endpointField stringValue] forKey:@"OllamaEndpoint"];
+    [defaults setObject:[_modelField stringValue] forKey:@"OllamaModel"];
+    
+    [self closeSettingsSheet:sender];
+    [_statusLabel setStringValue:@"Ollama configuration updated and saved."];
 }
 
 // --- UNIFIED IMPORT & EXPORT SESSION DATA ---
@@ -291,6 +429,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [_analyzeButton setEnabled:NO];
     [_languagePopUp setEnabled:NO];
     [_transferButton setEnabled:NO];
+    [_settingsButton setEnabled:NO];
     [_statusLabel setStringValue:@"Analyzing document... Progress: 0%"];
 
     var runId = [[_languagePopUp selectedItem] tag] || 48;
@@ -306,7 +445,17 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [request setHTTPMethod:@"POST"];
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
 
-    var payload = { "text": pText, "paragraph_index": pIndex, "run_id": runId };
+    var defaults = [CPUserDefaults standardUserDefaults];
+    var endpoint = [defaults objectForKey:@"OllamaEndpoint"];
+    var model = [defaults objectForKey:@"OllamaModel"];
+
+    var payload = { 
+        "text": pText, 
+        "paragraph_index": pIndex, 
+        "run_id": runId,
+        "ollama_endpoint": endpoint,
+        "ollama_model": model
+    };
     var postData = [CPString stringWithString:JSON.stringify(payload)];
     [request setHTTPBody:postData];
 
@@ -345,6 +494,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
             [_analyzeButton setEnabled:YES];
             [_languagePopUp setEnabled:YES];
             [_transferButton setEnabled:YES];
+            [_settingsButton setEnabled:YES];
             [_progressBar setHidden:YES];
             [_statusLabel setStringValue:@"Analysis finalized. Correct highlighted segments."];
         }
@@ -438,26 +588,24 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
     [cardBox setFillColor:cardBgColor];
 
-    var accentStrip = [[CPView alloc] initWithFrame:CGRectMake(0, 0, 5, CGRectGetHeight(frame))];
-    [accentStrip setBackgroundColor:accentColor];
-    [accentStrip setAutoresizingMask:CPViewMinXMargin | CPViewHeightSizable];
-    [cardBox addSubview:accentStrip];
+    // Transparenter Klickhintergrund über die gesamte Inhaltsbox
+    var bgClickView = [[AlertCardBackgroundView alloc] initWithFrame:[container bounds]];
+    [bgClickView setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
+    [bgClickView setTarget:self];
+    [bgClickView setAction:@selector(selectAlertTextAction:)];
+    [bgClickView setRepresentedObject:{ "alert": alert, "paragraphIndex": pIndex }];
+    [container addSubview:bgClickView positioned:CPWindowBelow relativeTo:nil];
 
-    var bgSelectBtn = [[CPButton alloc] initWithFrame:CGRectMake(0, 0, CGRectGetWidth(frame), CGRectGetHeight(frame))];
-    [bgSelectBtn setBezelStyle:CPBorderlessBridgeWindowMask];
-    [bgSelectBtn setAutoresizingMask:CPViewWidthSizable | CPViewHeightSizable];
-    [bgSelectBtn setTarget:self];
-    [bgSelectBtn setAction:@selector(selectAlertTextAction:)];
-    bgSelectBtn._representedObject = { "alert": alert, "paragraphIndex": pIndex };
-    [cardBox addSubview:bgSelectBtn];
-
+    // Beschreibungstext (Hit-Tests sind deaktiviert, um Klicks an bgClickView weiterzuleiten)
     var description = [[CPTextField alloc] initWithFrame:CGRectMake(15, 5, contentWidth - 25, 45)];
     [description setStringValue:alert.explanation];
     [description setLineBreakMode:CPLineBreakByWordWrapping];
     [description setFont:[CPFont systemFontOfSize:11.0]];
     [description setTextColor:[CPColor colorWithWhite:0.25 alpha:1.0]];
+    [description setHitTests:NO];
     [container addSubview:description];
 
+    // Aktions-Button
     var actionBtn = [[CPButton alloc] initWithFrame:CGRectMake(15, 52, contentWidth - 50, 26)];
     [actionBtn setTitle:[CPString stringWithFormat:@"Correct to: '%@'", alert.suggested_text]];
     [actionBtn setFont:[CPFont boldSystemFontOfSize:11.0]];
@@ -471,7 +619,8 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
 - (void)selectAlertTextAction:(id)sender
 {
-    var context = sender._representedObject;
+    var context = [sender representedObject];
+    if (!context) return;
     var alert = context.alert;
     var pIndex = context.paragraphIndex;
 
@@ -488,7 +637,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     var absRange = CPMakeRange(absoluteParaOffset + alert.offset, alert.length);
     [_editorTextView setSelectedRange:absRange];
     
-    // Scrollt den Editor-Textbereich zur selektierten Passage
+    // Scroll editor to visible passage
     [_editorTextView scrollRangeToVisible:absRange];
     
     [[_editorTextView window] makeFirstResponder:_editorTextView];
@@ -591,7 +740,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
     [self renderHighlightsAndSidebar];
     
-    // Hält den korrigierten Bereich im Fokus
+    // Focus and scroll corrected range
     var newRange = CPMakeRange(absoluteParaOffset + alert.offset, [alert.suggested_text length]);
     [_editorTextView scrollRangeToVisible:newRange];
 
