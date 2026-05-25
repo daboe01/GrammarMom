@@ -1,3 +1,6 @@
+Hier ist die überarbeitete und korrigierte Version der `README.md`, die exakt auf den aktuellen Zustand Ihres Objective-J-Frontends und Mojolicious-Backends angepasst ist:
+
+```markdown
 # AI-Powered Writing Assistant
 
 A web-based, desktop-class text editor and proofreading suite. The application analyzes narrative text paragraph-by-paragraph, highlights errors (spelling, grammar, clarity, and style) with visual overlays, and allows users to apply suggested corrections with a single click.
@@ -11,32 +14,34 @@ This project is built using a decoupled client-server architecture:
 
 ## Key Features
 
-*   **Multilingual Analysis**: Real-time language switching (German / English) utilizing different LLM run configurations (`48` and `49`).
-*   **Context-Aware Higlighting**: Highlights text segments based on four distinct categories:
+*   **Multilingual Analysis**: Real-time language switching (English, German, French) utilizing localized LLM system instructions rendered dynamically via backend templates.
+*   **Flexible Provider Integration**: Support for multiple LLM providers (Ollama, Groq API, Google Gemini, and OpenRouter) configurable directly inside the application's settings panel.
+*   **Context-Aware Highlighting**: Highlights text segments based on four distinct categories:
     *   🔴 **Spelling**: Typos and spelling mistakes.
     *   🔵 **Grammar**: Syntax issues, tense issues, and punctuation.
     *   🟢 **Clarity**: Passive voice, overly wordy sentences, or confusing phrasing.
     *   🟣 **Style**: Tone improvements and formal adjustments.
-*   **Fault-Tolerant String Matching**: Instead of relying on LLM character count offsets (which are often inaccurate), the Perl backend programmatically computes exact offsets using robust substring searches (`index`).
+*   **Robust String Matching**: Instead of relying on LLM character count offsets (which are often inaccurate), the Perl backend programmatically computes exact offsets using robust substring searches (`index`).
 *   **Dynamic Range Shifting**: Applying a correction dynamically shifts the offsets of all remaining alerts in the paragraph, preventing highlight misalignment during active editing.
+*   **Session Portability**: Import and export your current document and analyzed corrections in a single unified JSON structure.
 
 ---
 
 ## Architecture Overview
 
 ```text
- ┌────────────────────────┐         POST /DBB/analyze_text         ┌─────────────────────────┐
+ ┌────────────────────────┐       POST /DBB/analyze_paragraph       ┌─────────────────────────┐
  │                        │  ───────────────────────────────────>  │                         │
- │  Cappuccino Frontend   │                                        │   Mojolicious Backend   │
+ │  Cappuccino Frontend   │         (Per-Paragraph Payload)        │   Mojolicious Backend   │
  │     (Objective-J)      │  <───────────────────────────────────  │         (Perl)          │
- │                        │        JSON Array of Paragraphs        │                         │
+ │                        │        JSON Array of Local Alerts      │                         │
  └────────────────────────┘                                        └────────────┬────────────┘
                                                                                 │
-                                                                                │  POST (Asynchronous)
+                                                                                │  POST API Call
                                                                                 ▼
                                                                    ┌─────────────────────────┐
                                                                    │       LLM Service       │
-                                                                   │  (Run 48: EN / 49: DE)  │
+                                                                   │ (Ollama/Groq/Gemini/OR) │
                                                                    └─────────────────────────┘
 ```
 
@@ -45,7 +50,7 @@ This project is built using a decoupled client-server architecture:
 ## Tech Stack
 
 *   **Frontend**: Objective-J, Cappuccino SDK (AppKit & Foundation ports for the web)
-*   **Backend**: Perl 5, Mojolicious::Lite, Mojo::UserAgent, Mojo::Promise
+*   **Backend**: Perl 5, Mojolicious::Lite, Mojo::UserAgent
 *   **Integration**: JSON REST API
 
 ---
@@ -55,7 +60,7 @@ This project is built using a decoupled client-server architecture:
 ### Prerequisites
 
 *   **Frontend**: A local web server to serve the static Cappuccino assets (e.g., Python's `http.server` or Apache/Nginx).
-*   **Backend**: Perl 5 (ActivePerl or Perlbrew) with Mojolicious installed.
+*   **Backend**: Perl 5 with Mojolicious installed.
 
 ### Installation
 
@@ -70,55 +75,54 @@ This project is built using a decoupled client-server architecture:
     cpanm Mojolicious
     ```
 
-3.  **Set Environment Variables**:
-    Configure the backend to point to your LLM / Vectorstore endpoint:
-    ```bash
-    export VECTORSTORE_URL="http://your-llm-gateway"
-    ```
-
-4.  **Start the Backend**:
-    Run the server in development mode (using Morbo for auto-reload):
+3.  **Start the Backend**:
+    Run the server in development mode using Morbo:
     ```bash
     morbo app.pl
     ```
+    *Note: The backend is preconfigured to bind to port `3001` via Hypnotoad settings.*
 
-5.  **Run the Frontend**:
-    Open `http://localhost:3000/Frontend/index.html` in your browser.
+4.  **Run the Frontend**:
+    Serve your frontend directory and open it in your browser (e.g., `http://localhost:3000/index.html`). 
+    
+5.  **Configure API Keys**:
+    Click on **AI Assistant > Settings...** in the application menu bar to select your provider (Ollama, Groq, Gemini, or OpenRouter) and enter your API credentials. These settings are stored locally in your browser session via `CPUserDefaults`.
 
 ---
 
 ## API Specification
 
-### Text Analysis Endpoint
+### Paragraph Analysis Endpoint
 
-*   **Route**: `POST /DBB/analyze_text`
+*   **Route**: `POST /DBB/analyze_paragraph`
 *   **Headers**: `Content-Type: application/json`
 *   **Request Payload**:
     ```json
     {
-      "text": "This is some narrative text. It has a mispelled word.",
-      "run_id": 48
+      "text": "Red underlines mean that Grammarly has spotted a mistake in your writing. You'll see one if you mispell something.",
+      "paragraph_index": 0,
+      "lang_code": "en",
+      "service_type": "groq",
+      "endpoint": "",
+      "model": "llama3-8b-8192",
+      "api_key": "gsk_..."
     }
     ```
 *   **Response Payload**:
     ```json
     {
-      "paragraphs": [
+      "paragraph_index": 0,
+      "text": "Red underlines mean that Grammarly has spotted a mistake in your writing. You'll see one if you mispell something.",
+      "alerts": [
         {
-          "paragraph_index": 0,
-          "text": "This is some narrative text. It has a mispelled word.",
-          "alerts": [
-            {
-              "id": "alert_0_0",
-              "category": "spelling",
-              "title": "Spelling Correction",
-              "original_text": "mispelled",
-              "suggested_text": "misspelled",
-              "offset": 38,
-              "length": 9,
-              "explanation": "The word is spelled with double 's'."
-            }
-          ]
+          "id": "alert_0_0",
+          "category": "spelling",
+          "title": "Spelling Correction",
+          "original_text": "mispell",
+          "suggested_text": "misspell",
+          "offset": 92,
+          "length": 7,
+          "explanation": "The word 'mispell' is misspelled. The correct spelling is 'misspell'."
         }
       ]
     }
@@ -129,3 +133,4 @@ This project is built using a decoupled client-server architecture:
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+```
