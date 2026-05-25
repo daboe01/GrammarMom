@@ -3,10 +3,11 @@ use Data::Dumper;
 use Mojo::UserAgent;
 use Encode;
 use Mojo::JSON qw(decode_json encode_json);
+use Mojo::Util qw(html_unescape);
 
 no warnings 'uninitialized';
 
-$ENV{MOJO_INACTIVITY_TIMEOUT} = 600;
+$ENV{MOJO_INACTIVITY_TIMEOUT} = 12000;
 
 hook after_dispatch => sub {
     my $tx = shift;
@@ -19,7 +20,7 @@ my $ua = Mojo::UserAgent->new(request_timeout => 0, inactivity_timeout => 0, con
 $ua->max_connections(0);
 
 # =========================================================
-# ROUTE: Analyze a Single Paragraph via Ollama or Groq API
+# ROUTE: Analyze a Single Paragraph via AI Integration
 # =========================================================
 post '/DBB/analyze_paragraph' => sub {
     my $c = shift;
@@ -29,9 +30,9 @@ post '/DBB/analyze_paragraph' => sub {
     my $p_idx        = $payload->{paragraph_index} // 0;
     my $lang_code    = $payload->{lang_code} // 'en';
     my $service_type = $payload->{service_type} // 'ollama';
-    my $endpoint     = $payload->{ollama_endpoint} // 'http://localhost:11434/api/generate';
-    my $model        = $payload->{ollama_model} // 'gemma4:e4b';
-    my $groq_api_key = $payload->{groq_api_key} // '';
+    my $endpoint     = $payload->{endpoint} // 'http://localhost:11434/api/generate';
+    my $model        = $payload->{model} // '';
+    my $api_key      = $payload->{api_key} // '';
 
     # Safety validation of language codes
     $lang_code = 'en' unless $lang_code =~ /^(en|de|fr)$/;
@@ -40,8 +41,9 @@ post '/DBB/analyze_paragraph' => sub {
         return $c->render(json => { paragraph_index => $p_idx, text => '', alerts => [] });
     }
 
-    my $clean_p_text = $p_text;
+    my $clean_p_text = html_unescape($p_text);
     $clean_p_text =~ s/^\s+|\s+$//g; # trim
+warn $clean_p_text;
 
     # Ignore paragraphs containing only a few words (e.g. headings with 4 or fewer words)
     my @words = split /\s+/, $clean_p_text;
@@ -63,7 +65,9 @@ post '/DBB/analyze_paragraph' => sub {
         $template_name = 'french_prompt';
     }
 
-    my $full_prompt = $c->render_to_string($template_name, text => $clean_p_text);
+    $c->stash(mytext => $clean_p_text);
+    my $full_prompt = $c->render_to_string($template_name);
+warn $full_prompt;
 
     my $req_url;
     my $req_headers = { 'Content-Type' => 'application/json' };
@@ -71,9 +75,9 @@ post '/DBB/analyze_paragraph' => sub {
 
     if ($service_type eq 'groq') {
         $req_url = 'https://api.groq.com/openai/v1/chat/completions';
-        $req_headers->{'Authorization'} = "Bearer $groq_api_key";
+        $req_headers->{'Authorization'} = "Bearer $api_key";
         $req_payload = {
-            model    => $model,
+            model    => $model || 'llama3-8b-8192',
             messages => [
                 {
                     role    => 'user',
@@ -81,14 +85,41 @@ post '/DBB/analyze_paragraph' => sub {
                 }
             ],
             temperature => 0,
-            max_completion_tokens => 8192,
+            max_completion_tokens => 5000,
             top_p => 1,
             stream => Mojo::JSON->false
         };
-    } else {
-        $req_url = $endpoint;
+    } elsif ($service_type eq 'gemini') {
+        my $active_model = $model || 'gemini-2.0-flash';
+        $req_url = "https://generativelanguage.googleapis.com/v1beta/models/$active_model:generateContent?key=$api_key";
         $req_payload = {
-            model   => $model,
+            contents => [{
+                parts => [{ text => $full_prompt }]
+            }],
+            generationConfig => {
+                temperature => 0.1,
+            }
+        };
+    } elsif ($service_type eq 'openrouter') {
+        $req_url = 'https://openrouter.ai/api/v1/chat/completions';
+        $req_headers->{'Authorization'} = "Bearer $api_key";
+        $req_headers->{'HTTP-Referer'} = 'http://localhost:3001';
+        $req_headers->{'X-Title'} = 'AI Writing Assistant';
+        $req_payload = {
+            model    => $model || 'openai/gpt-4o',
+            messages => [
+                {
+                    role    => 'user',
+                    content => $full_prompt
+                }
+            ],
+            temperature => 0.1,
+            stream => Mojo::JSON->false
+        };
+    } else { # ollama
+        $req_url = $endpoint || 'http://localhost:11434/api/generate';
+        $req_payload = {
+            model   => $model || 'gemma4:e4b',
             prompt  => $full_prompt,
             stream  => Mojo::JSON->false,
             options => {
@@ -102,12 +133,15 @@ post '/DBB/analyze_paragraph' => sub {
     ->then(sub {
         my $tx = shift;
         my $raw_alerts = [];
+#warn Dumper $tx;
 
         if ($tx->result && $tx->result->is_success) {
             my $response_text = '';
-            if ($service_type eq 'groq') {
+            if ($service_type eq 'groq' || $service_type eq 'openrouter') {
                 $response_text = $tx->result->json->{choices}[0]{message}{content} // '';
-            } else {
+            } elsif ($service_type eq 'gemini') {
+                $response_text = $tx->result->json->{candidates}[0]{content}{parts}[0]{text} // '';
+            } else { # ollama
                 $response_text = $tx->result->json->{response} // '';
             }
             warn $response_text;
@@ -139,7 +173,7 @@ post '/DBB/analyze_paragraph' => sub {
                 push @$processed_alerts, $alert;
             }
         }
-
+warn Dumper $processed_alerts;
         $c->render(json => {
             paragraph_index => $p_idx,
             text            => $clean_p_text,
@@ -161,7 +195,6 @@ app->config(hypnotoad => {listen => ['http://*:3001'], workers => 3, heartbeat_t
 app->start;
 
 __DATA__
-
 @@ german_prompt.html.ep
 Sie sind ein kontextsensitiver Korrektur- und Lektoratsassistent.
 Analysieren Sie den bereitgestellten Textabschnitt und geben Sie eine JSON-Liste der identifizierten Probleme zurück.
@@ -189,7 +222,8 @@ JSON-Schema für das Ausgabeformat:
 ]
 
 Hier ist dein Text:
-<%= $text %>
+<%== $mytext %>
+
 
 @@ english_prompt.html.ep
 You are a context-aware proofreading and copy-editing assistant.
@@ -218,7 +252,8 @@ JSON Schema Output format:
 ]
 
 Here is your text:
-<%= $text %>
+<%== $mytext %>
+
 
 @@ french_prompt.html.ep
 Vous êtes un assistant de relecture et de correction de texte sensible au contexte.
@@ -247,4 +282,4 @@ Format de schéma JSON de sortie :
 ]
 
 Voici votre texte :
-<%= $text %>
+<%== $mytext %>

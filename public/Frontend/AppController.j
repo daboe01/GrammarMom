@@ -55,6 +55,17 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     CPTextField         _modelField;
     CPTextField         _apiKeyField;
 
+    // Temporary Settings Variables to preserve changes before saving
+    CPString            _lastSelectedService;
+    CPString            _tempOllamaEndpoint;
+    CPString            _tempOllamaModel;
+    CPString            _tempGroqAPIKey;
+    CPString            _tempGroqModel;
+    CPString            _tempGeminiAPIKey;
+    CPString            _tempGeminiModel;
+    CPString            _tempOpenRouterAPIKey;
+    CPString            _tempOpenRouterModel;
+
     CPArray             _paragraphsData;  // Cached structured backend responses
     CPDictionary        _alertCardsMap;   // Maps alert IDs to their sidebar visual card boxes
     CPBox               _currentHighlightedCard; // Currently active/selected card in sidebar
@@ -72,8 +83,27 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 {
     // --- PERSISTENT USER DEFAULTS INITIALIZATION ---
     var defaults = [CPUserDefaults standardUserDefaults];
-    var defaultSettings = [CPDictionary dictionaryWithObjects:[@"http://localhost:11434/api/generate", @"gemma4:e4b", @"ollama", @"", @"llama3-8b-8192"]
-                                                      forKeys:[@"OllamaEndpoint", @"OllamaModel", @"ServiceType", @"GroqAPIKey", @"GroqModel"]];
+    var defaultSettings = [CPDictionary dictionaryWithObjects:[
+        @"http://localhost:11434/api/generate",
+        @"gemma4:e4b",
+        @"ollama",
+        @"",
+        @"llama3-8b-8192",
+        @"",
+        @"gemini-2.0-flash",
+        @"",
+        @"openai/gpt-4o"
+    ] forKeys:[
+        @"OllamaEndpoint",
+        @"OllamaModel",
+        @"ServiceType",
+        @"GroqAPIKey",
+        @"GroqModel",
+        @"GeminiAPIKey",
+        @"GeminiModel",
+        @"OpenRouterAPIKey",
+        @"OpenRouterModel"
+    ]];
     [defaults registerDefaults:defaultSettings];
 
     // --- SYSTEM MENU BAR SETUP ---
@@ -209,7 +239,7 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
         // Description Info
         var infoLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 15, CGRectGetWidth(sheetBounds) - 30, 40)];
-        [infoLabel setStringValue:@"Configure your local or remote LLM configuration (Ollama or Groq API)."];
+        [infoLabel setStringValue:@"Configure your LLM integration (Ollama, Groq, Gemini, or OpenRouter)."];
         [infoLabel setFont:[CPFont systemFontOfSize:11.0]];
         [infoLabel setTextColor:[CPColor colorWithWhite:0.3 alpha:1.0]];
         [infoLabel setLineBreakMode:CPLineBreakByWordWrapping];
@@ -227,6 +257,12 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
         [[_servicePopUp lastItem] setRepresentedObject:@"ollama"];
         [_servicePopUp addItemWithTitle:@"Groq API"];
         [[_servicePopUp lastItem] setRepresentedObject:@"groq"];
+        [_servicePopUp addItemWithTitle:@"Google Gemini"];
+        [[_servicePopUp lastItem] setRepresentedObject:@"gemini"];
+        [_servicePopUp addItemWithTitle:@"OpenRouter"];
+        [[_servicePopUp lastItem] setRepresentedObject:@"openrouter"];
+        [_servicePopUp setTarget:self];
+        [_servicePopUp setAction:@selector(serviceTypeDidChange:)];
         [sheetContentView addSubview:_servicePopUp];
 
         // Endpoint Target URL
@@ -255,9 +291,9 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
         [_modelField setFont:[CPFont systemFontOfSize:12.0]];
         [sheetContentView addSubview:_modelField];
 
-        // Groq API Key
+        // API Key Field
         var apiKeyLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 165, 110, 20)];
-        [apiKeyLabel setStringValue:@"Groq API Key:"];
+        [apiKeyLabel setStringValue:@"API Key:"];
         [apiKeyLabel setFont:[CPFont systemFontOfSize:12.0]];
         [apiKeyLabel setAlignment:CPRightTextAlignment];
         [sheetContentView addSubview:apiKeyLabel];
@@ -287,21 +323,83 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [_settingsWindow setTitle:@"AI Service Configuration"];
     
     var defaults = [CPUserDefaults standardUserDefaults];
-    var serviceType = [defaults objectForKey:@"ServiceType"] || @"ollama";
-    if (serviceType === @"groq") {
-        [_servicePopUp selectItemAtIndex:1];
-    } else {
-        [_servicePopUp selectItemAtIndex:0];
-    }
-    [_endpointField setStringValue:[defaults objectForKey:@"OllamaEndpoint"] || @""];
-    [_modelField setStringValue:[defaults objectForKey:@"OllamaModel"] || @""];
-    [_apiKeyField setStringValue:[defaults objectForKey:@"GroqAPIKey"] || @""];
+    var activeService = [defaults objectForKey:@"ServiceType"] || @"ollama";
+    _lastSelectedService = activeService;
+
+    // Load saved settings into temporary working variables
+    _tempOllamaEndpoint = [defaults objectForKey:@"OllamaEndpoint"] || @"http://localhost:11434/api/generate";
+    _tempOllamaModel = [defaults objectForKey:@"OllamaModel"] || @"gemma4:e4b";
+    _tempGroqAPIKey = [defaults objectForKey:@"GroqAPIKey"] || @"";
+    _tempGroqModel = [defaults objectForKey:@"GroqModel"] || @"llama3-8b-8192";
+    _tempGeminiAPIKey = [defaults objectForKey:@"GeminiAPIKey"] || @"";
+    _tempGeminiModel = [defaults objectForKey:@"GeminiModel"] || @"gemini-2.0-flash";
+    _tempOpenRouterAPIKey = [defaults objectForKey:@"OpenRouterAPIKey"] || @"";
+    _tempOpenRouterModel = [defaults objectForKey:@"OpenRouterModel"] || @"openai/gpt-4o";
+
+    if (activeService === @"ollama") [_servicePopUp selectItemAtIndex:0];
+    else if (activeService === @"groq") [_servicePopUp selectItemAtIndex:1];
+    else if (activeService === @"gemini") [_servicePopUp selectItemAtIndex:2];
+    else if (activeService === @"openrouter") [_servicePopUp selectItemAtIndex:3];
+
+    [self updateFieldsForService:activeService];
 
     [CPApp beginSheet:_settingsWindow
         modalForWindow:[_editorTextView window]
          modalDelegate:self
         didEndSelector:nil
            contextInfo:nil];
+}
+
+- (void)updateFieldsForService:(CPString)serviceType
+{
+    if (serviceType === @"ollama") {
+        [_endpointField setEnabled:YES];
+        [_endpointField setStringValue:_tempOllamaEndpoint];
+        [_modelField setStringValue:_tempOllamaModel];
+        [_apiKeyField setEnabled:NO];
+        [_apiKeyField setStringValue:@""];
+        [_apiKeyField setPlaceholderString:@"Not required for Ollama"];
+    } else {
+        [_endpointField setEnabled:NO];
+        [_endpointField setStringValue:@""];
+        [_endpointField setPlaceholderString:@"Constant Endpoint"];
+        [_apiKeyField setEnabled:YES];
+        [_apiKeyField setPlaceholderString:@"Enter API Key"];
+        
+        if (serviceType === @"groq") {
+            [_modelField setStringValue:_tempGroqModel];
+            [_apiKeyField setStringValue:_tempGroqAPIKey];
+        } else if (serviceType === @"gemini") {
+            [_modelField setStringValue:_tempGeminiModel];
+            [_apiKeyField setStringValue:_tempGeminiAPIKey];
+        } else if (serviceType === @"openrouter") {
+            [_modelField setStringValue:_tempOpenRouterModel];
+            [_apiKeyField setStringValue:_tempOpenRouterAPIKey];
+        }
+    }
+}
+
+- (void)serviceTypeDidChange:(id)sender
+{
+    // 1. Commit active fields to temporary storage before switching service variables
+    if (_lastSelectedService === @"ollama") {
+        _tempOllamaEndpoint = [_endpointField stringValue];
+        _tempOllamaModel = [_modelField stringValue];
+    } else if (_lastSelectedService === @"groq") {
+        _tempGroqModel = [_modelField stringValue];
+        _tempGroqAPIKey = [_apiKeyField stringValue];
+    } else if (_lastSelectedService === @"gemini") {
+        _tempGeminiModel = [_modelField stringValue];
+        _tempGeminiAPIKey = [_apiKeyField stringValue];
+    } else if (_lastSelectedService === @"openrouter") {
+        _tempOpenRouterModel = [_modelField stringValue];
+        _tempOpenRouterAPIKey = [_apiKeyField stringValue];
+    }
+
+    // 2. Load fields for newly selected service
+    var newService = [[_servicePopUp selectedItem] representedObject];
+    _lastSelectedService = newService;
+    [self updateFieldsForService:newService];
 }
 
 - (void)closeSettingsSheet:(id)sender
@@ -312,12 +410,33 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
 - (void)saveSettings:(id)sender
 {
+    // First, commit active fields to temporary variables
+    var activeService = [[_servicePopUp selectedItem] representedObject] || @"ollama";
+    if (activeService === @"ollama") {
+        _tempOllamaEndpoint = [_endpointField stringValue];
+        _tempOllamaModel = [_modelField stringValue];
+    } else if (activeService === @"groq") {
+        _tempGroqModel = [_modelField stringValue];
+        _tempGroqAPIKey = [_apiKeyField stringValue];
+    } else if (activeService === @"gemini") {
+        _tempGeminiModel = [_modelField stringValue];
+        _tempGeminiAPIKey = [_apiKeyField stringValue];
+    } else if (activeService === @"openrouter") {
+        _tempOpenRouterModel = [_modelField stringValue];
+        _tempOpenRouterAPIKey = [_apiKeyField stringValue];
+    }
+
+    // Persist all configured settings to standard user defaults
     var defaults = [CPUserDefaults standardUserDefaults];
-    var selectedService = [[_servicePopUp selectedItem] representedObject] || @"ollama";
-    [defaults setObject:selectedService forKey:@"ServiceType"];
-    [defaults setObject:[_endpointField stringValue] forKey:@"OllamaEndpoint"];
-    [defaults setObject:[_modelField stringValue] forKey:@"OllamaModel"];
-    [defaults setObject:[_apiKeyField stringValue] forKey:@"GroqAPIKey"];
+    [defaults setObject:activeService forKey:@"ServiceType"];
+    [defaults setObject:_tempOllamaEndpoint forKey:@"OllamaEndpoint"];
+    [defaults setObject:_tempOllamaModel forKey:@"OllamaModel"];
+    [defaults setObject:_tempGroqModel forKey:@"GroqModel"];
+    [defaults setObject:_tempGroqAPIKey forKey:@"GroqAPIKey"];
+    [defaults setObject:_tempGeminiModel forKey:@"GeminiModel"];
+    [defaults setObject:_tempGeminiAPIKey forKey:@"GeminiAPIKey"];
+    [defaults setObject:_tempOpenRouterModel forKey:@"OpenRouterModel"];
+    [defaults setObject:_tempOpenRouterAPIKey forKey:@"OpenRouterAPIKey"];
     
     [self closeSettingsSheet:sender];
     [_statusLabel setStringValue:@"AI configuration updated and saved."];
@@ -479,25 +598,44 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
 - (void)analyzeParagraph:(CPString)pText index:(int)pIndex langCode:(CPString)langCode
 {
-    var request = [CPURLRequest requestWithURL:@"/DBB/analyze_paragraph"];
+    // Use the initializer that allows setting the cache policy and timeout interval (e.g., 3600.0 seconds)
+    var request = [CPURLRequest requestWithURL:@"/DBB/analyze_paragraph" 
+                                   cachePolicy:CPURLRequestUseProtocolCachePolicy 
+                               timeoutInterval:3600.0];
+                               
     [request setHTTPMethod:@"POST"];
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
 
     var defaults = [CPUserDefaults standardUserDefaults];
     var serviceType = [defaults objectForKey:@"ServiceType"] || @"ollama";
-    var endpoint = [defaults objectForKey:@"OllamaEndpoint"];
-    var model = [defaults objectForKey:@"OllamaModel"];
-    var apiKey = [defaults objectForKey:@"GroqAPIKey"] || @"";
+
+    var endpoint = [defaults objectForKey:@"OllamaEndpoint"] || @"";
+    var model = @"";
+    var apiKey = @"";
+
+    if (serviceType === @"ollama") {
+        model = [defaults objectForKey:@"OllamaModel"];
+    } else if (serviceType === @"groq") {
+        model = [defaults objectForKey:@"GroqModel"];
+        apiKey = [defaults objectForKey:@"GroqAPIKey"];
+    } else if (serviceType === @"gemini") {
+        model = [defaults objectForKey:@"GeminiModel"];
+        apiKey = [defaults objectForKey:@"GeminiAPIKey"];
+    } else if (serviceType === @"openrouter") {
+        model = [defaults objectForKey:@"OpenRouterModel"];
+        apiKey = [defaults objectForKey:@"OpenRouterAPIKey"];
+    }
 
     var payload = { 
         "text": pText, 
         "paragraph_index": pIndex, 
         "lang_code": langCode,
         "service_type": serviceType,
-        "ollama_endpoint": endpoint,
-        "ollama_model": model,
-        "groq_api_key": apiKey
+        "endpoint": endpoint,
+        "model": model,
+        "api_key": apiKey
     };
+    
     var postData = [CPString stringWithString:JSON.stringify(payload)];
     [request setHTTPBody:postData];
 
