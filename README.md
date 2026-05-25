@@ -1,6 +1,3 @@
-Hier ist die überarbeitete und korrigierte Version der `README.md`, die exakt auf den aktuellen Zustand Ihres Objective-J-Frontends und Mojolicious-Backends angepasst ist:
-
-```markdown
 # AI-Powered Writing Assistant
 
 A web-based, desktop-class text editor and proofreading suite. The application analyzes narrative text paragraph-by-paragraph, highlights errors (spelling, grammar, clarity, and style) with visual overlays, and allows users to apply suggested corrections with a single click.
@@ -133,4 +130,3 @@ This project is built using a decoupled client-server architecture:
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-```
