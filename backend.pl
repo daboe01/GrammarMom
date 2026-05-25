@@ -133,7 +133,6 @@ warn $full_prompt;
     ->then(sub {
         my $tx = shift;
         my $raw_alerts = [];
-#warn Dumper $tx;
 
         if ($tx->result && $tx->result->is_success) {
             my $response_text = '';
@@ -152,6 +151,10 @@ warn $full_prompt;
             $response_text =~ s/^\s+|\s+$//g;
 
             $raw_alerts = eval { Mojo::JSON::from_json($response_text) } // [];
+        }
+        else
+        {
+            warn Dumper $tx;
         }
 
         my $processed_alerts = [];
