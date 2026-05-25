@@ -19,53 +19,99 @@ my $ua = Mojo::UserAgent->new(request_timeout => 0, inactivity_timeout => 0, con
 $ua->max_connections(0);
 
 # =========================================================
-# ROUTE: Analyze a Single Paragraph via Ollama
+# ROUTE: Analyze a Single Paragraph via Ollama or Groq API
 # =========================================================
 post '/DBB/analyze_paragraph' => sub {
     my $c = shift;
 
-    my $payload   = $c->req->json;
-    my $p_text    = $payload->{text} // '';
-    my $p_idx     = $payload->{paragraph_index} // 0;
-    my $run_id    = $payload->{run_id} // 48;
-    my $endpoint  = $payload->{ollama_endpoint} // 'http://localhost:11434/api/generate';
-    my $model     = $payload->{ollama_model} // 'gemma4:e4b';
+    my $payload      = $c->req->json;
+    my $p_text       = $payload->{text} // '';
+    my $p_idx        = $payload->{paragraph_index} // 0;
+    my $lang_code    = $payload->{lang_code} // 'en';
+    my $service_type = $payload->{service_type} // 'ollama';
+    my $endpoint     = $payload->{ollama_endpoint} // 'http://localhost:11434/api/generate';
+    my $model        = $payload->{ollama_model} // 'gemma4:e4b';
+    my $groq_api_key = $payload->{groq_api_key} // '';
 
-    $run_id = 48 unless $run_id =~ /^(48|49)$/;
+    # Safety validation of language codes
+    $lang_code = 'en' unless $lang_code =~ /^(en|de|fr)$/;
 
     unless ($p_text) {
         return $c->render(json => { paragraph_index => $p_idx, text => '', alerts => [] });
     }
 
-    $c->render_later;
-
     my $clean_p_text = $p_text;
     $clean_p_text =~ s/^\s+|\s+$//g; # trim
 
-    # Load appropriate prompt from __DATA__ section
-    # my $prompt_template = Mojo::Loader::data_section('main', $run_id == 49 ? 'german_prompt' : 'english_prompt') // '';
-    my $prompt_template = $c->render_to_string($run_id == 49 ? 'german_prompt' : 'english_prompt');
-    my $full_prompt = $prompt_template;
-    $full_prompt =~ s/__INPUT__/$clean_p_text/g;
+    # Ignore paragraphs containing only a few words (e.g. headings with 4 or fewer words)
+    my @words = split /\s+/, $clean_p_text;
+    if (scalar @words <= 4) {
+        return $c->render(json => {
+            paragraph_index => $p_idx,
+            text            => $clean_p_text,
+            alerts          => []
+        });
+    }
 
-    my $json_payload = {
-        model   => $model,
-        prompt  => $full_prompt,
-        stream  => Mojo::JSON->false,
-        options => {
+    $c->render_later;
+
+    # Load appropriate template via native Mojolicious rendering system
+    my $template_name = 'english_prompt';
+    if ($lang_code eq 'de') {
+        $template_name = 'german_prompt';
+    } elsif ($lang_code eq 'fr') {
+        $template_name = 'french_prompt';
+    }
+
+    my $full_prompt = $c->render_to_string($template_name, text => $clean_p_text);
+
+    my $req_url;
+    my $req_headers = { 'Content-Type' => 'application/json' };
+    my $req_payload;
+
+    if ($service_type eq 'groq') {
+        $req_url = 'https://api.groq.com/openai/v1/chat/completions';
+        $req_headers->{'Authorization'} = "Bearer $groq_api_key";
+        $req_payload = {
+            model    => $model,
+            messages => [
+                {
+                    role    => 'user',
+                    content => $full_prompt
+                }
+            ],
             temperature => 0,
-            num_ctx     => 40960
-        }
-    };
+            max_completion_tokens => 8192,
+            top_p => 1,
+            stream => Mojo::JSON->false
+        };
+    } else {
+        $req_url = $endpoint;
+        $req_payload = {
+            model   => $model,
+            prompt  => $full_prompt,
+            stream  => Mojo::JSON->false,
+            options => {
+                temperature => 0,
+                num_ctx     => 40000
+            }
+        };
+    }
 
-    $ua->post_p($endpoint => json => $json_payload)
+    $ua->post_p($req_url => $req_headers => json => $req_payload)
     ->then(sub {
         my $tx = shift;
         my $raw_alerts = [];
 
         if ($tx->result && $tx->result->is_success) {
-            my $response_text = $tx->result->json->{response} // '';
+            my $response_text = '';
+            if ($service_type eq 'groq') {
+                $response_text = $tx->result->json->{choices}[0]{message}{content} // '';
+            } else {
+                $response_text = $tx->result->json->{response} // '';
+            }
             warn $response_text;
+
             # Remove Markdown enclosures if present
             $response_text =~ s/^```(?:json)?//i;
             $response_text =~ s/```$//;
@@ -102,7 +148,7 @@ post '/DBB/analyze_paragraph' => sub {
     })
     ->catch(sub {
         my $err = shift;
-        $c->app->log->warn("Ollama processing failed for paragraph $p_idx: $err");
+        $c->app->log->warn("AI processing failed for paragraph $p_idx: $err");
         $c->render(json => {
             paragraph_index => $p_idx,
             text            => $clean_p_text,
@@ -143,7 +189,7 @@ JSON-Schema für das Ausgabeformat:
 ]
 
 Hier ist dein Text:
-__INPUT__
+<%= $text %>
 
 @@ english_prompt.html.ep
 You are a context-aware proofreading and copy-editing assistant.
@@ -172,4 +218,33 @@ JSON Schema Output format:
 ]
 
 Here is your text:
-__INPUT__
+<%= $text %>
+
+@@ french_prompt.html.ep
+Vous êtes un assistant de relecture et de correction de texte sensible au contexte.
+Analysez le paragraphe fourni et retournez une liste JSON des problèmes identifiés.
+
+Analysez le texte selon quatre catégories :
+1. "spelling" : Fautes de frappe, erreurs d'orthographe et mots mal orthographiés.
+2. "grammar" : Accord sujet-verbe, mauvaise ponctuation, erreurs de syntaxe, incohérences de temps.
+3. "clarity" : Phrases trop longues, voix passive, structures confuses.
+4. "style" : Améliorations de ton, ajustements de vocabulaire formel ou violations des guides de style.
+
+CONSIGNES CRITIQUES :
+- Le champ "original_text" doit correspondre exactement au mot ou à la phrase incorrecte du paragraphe fourni.
+- Fournissez UNIQUEMENT du JSON brut et valide contenant un tableau plat d'objets conforme au schéma ci-dessous.
+- Ne générez pas de blocs de code Markdown (comme ```json) ni de texte conversationnel supplémentaire.
+
+Format de schéma JSON de sortie :
+[
+  {
+    "category": "spelling" | "grammar" | "clarity" | "style",
+    "title": "Brève description de la catégorie",
+    "original_text": "texte_original_exact_provenant_du_document",
+    "suggested_text": "proposition_de_remplacement",
+    "explanation": "Brève explication du contexte justifiant cette correction."
+  }
+]
+
+Voici votre texte :
+<%= $text %>

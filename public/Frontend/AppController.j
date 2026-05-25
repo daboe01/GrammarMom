@@ -48,11 +48,12 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     CPWindow            _sheetWindow;
     CPTextView          _sheetTextView;
 
-    // Ollama Settings Controls
-    CPButton            _settingsButton;
+    // Service Settings Controls
     CPWindow            _settingsWindow;
+    CPPopUpButton       _servicePopUp;
     CPTextField         _endpointField;
     CPTextField         _modelField;
+    CPTextField         _apiKeyField;
 
     CPArray             _paragraphsData;  // Cached structured backend responses
     CPDictionary        _alertCardsMap;   // Maps alert IDs to their sidebar visual card boxes
@@ -71,8 +72,8 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 {
     // --- PERSISTENT USER DEFAULTS INITIALIZATION ---
     var defaults = [CPUserDefaults standardUserDefaults];
-    var defaultSettings = [CPDictionary dictionaryWithObjects:[@"http://localhost:11434/api/generate", @"gemma4:e4b"]
-                                                      forKeys:[@"OllamaEndpoint", @"OllamaModel"]];
+    var defaultSettings = [CPDictionary dictionaryWithObjects:[@"http://localhost:11434/api/generate", @"gemma4:e4b", @"ollama", @"", @"llama3-8b-8192"]
+                                                      forKeys:[@"OllamaEndpoint", @"OllamaModel", @"ServiceType", @"GroqAPIKey", @"GroqModel"]];
     [defaults registerDefaults:defaultSettings];
 
     // --- SYSTEM MENU BAR SETUP ---
@@ -80,8 +81,14 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     while ([mainMenu numberOfItems] > 0)
        [mainMenu removeItemAtIndex:0];
 
+    // AI Assistant Menu
+    var appItem = [mainMenu insertItemWithTitle:@"AI Assistant" action:nil keyEquivalent:nil atIndex:0];
+    var appMenu = [[CPMenu alloc] initWithTitle:@"AI Assistant"];
+    [appMenu addItemWithTitle:@"Settings..." action:@selector(openSettingsSheet:) keyEquivalent:@","];
+    [mainMenu setSubmenu:appMenu forItem:appItem];
+
     // Format Menu with Font Panel
-    var formatItem = [mainMenu insertItemWithTitle:@"Format" action:nil keyEquivalent:nil atIndex:0];
+    var formatItem = [mainMenu insertItemWithTitle:@"Format" action:nil keyEquivalent:nil atIndex:1];
     var formatMenu = [[CPMenu alloc] initWithTitle:@"Format"];
     [formatMenu addItemWithTitle:@"Font Panel" action:@selector(orderFrontFontPanel:) keyEquivalent:@"t"];
     [mainMenu setSubmenu:formatMenu forItem:formatItem];
@@ -112,9 +119,11 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     // Language Selector Popup
     _languagePopUp = [[CPPopUpButton alloc] initWithFrame:CGRectMake(160, 12, 95, 26) pullsDown:NO];
     [_languagePopUp addItemWithTitle:@"English"];
-    [[_languagePopUp lastItem] setTag:48];
+    [[_languagePopUp lastItem] setRepresentedObject:@"en"];
     [_languagePopUp addItemWithTitle:@"Deutsch"];
-    [[_languagePopUp lastItem] setTag:49];
+    [[_languagePopUp lastItem] setRepresentedObject:@"de"];
+    [_languagePopUp addItemWithTitle:@"Français"];
+    [[_languagePopUp lastItem] setRepresentedObject:@"fr"];
     [topBar addSubview:_languagePopUp];
 
     // Unified Session Import/Export Button
@@ -124,22 +133,15 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [_transferButton setAction:@selector(openTransferSheet:)];
     [topBar addSubview:_transferButton];
 
-    // Ollama Configuration Button
-    _settingsButton = [[CPButton alloc] initWithFrame:CGRectMake(415, 12, 130, 26)];
-    [_settingsButton setTitle:@"Ollama Settings"];
-    [_settingsButton setTarget:self];
-    [_settingsButton setAction:@selector(openSettingsSheet:)];
-    [topBar addSubview:_settingsButton];
-
     // Progress Bar
-    _progressBar = [[CPProgressIndicator alloc] initWithFrame:CGRectMake(555, 18, 120, 14)];
+    _progressBar = [[CPProgressIndicator alloc] initWithFrame:CGRectMake(420, 18, 120, 14)];
     [_progressBar setStyle:CPProgressIndicatorBarStyle];
     [_progressBar setIndeterminate:NO];
     [_progressBar setHidden:YES];
     [topBar addSubview:_progressBar];
 
     // Status Label
-    _statusLabel = [[CPTextField alloc] initWithFrame:CGRectMake(685, 15, 390, 20)];
+    _statusLabel = [[CPTextField alloc] initWithFrame:CGRectMake(550, 15, 525, 20)];
     [_statusLabel setStringValue:@"Enter narrative text below and run validation."];
     [_statusLabel setFont:[CPFont systemFontOfSize:12]];
     [_statusLabel setAutoresizingMask:CPViewWidthSizable];
@@ -193,13 +195,13 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [_editorTextView setString:@"Welcome to the GrammarMom Editor, the best place to write what's important.\n\nRed underlines mean that Grammarly has spotted a mistake in your writing. You'll see one if you mispell something. If you're worry about typos or grammatical errors that could effect your credibility, suggestions will helps you fix those to."];
 }
 
-// --- OLLAMA SETTINGS CONFIGURATION PANEL ---
+// --- CONFIGURATION PANEL ---
 
 - (void)openSettingsSheet:(id)sender
 {
     if (!_settingsWindow)
     {
-        _settingsWindow = [[CPWindow alloc] initWithContentRect:CGRectMake(0, 0, 480, 220)
+        _settingsWindow = [[CPWindow alloc] initWithContentRect:CGRectMake(0, 0, 480, 290)
                                                    styleMask:CPTitledWindowMask | CPClosableWindowMask];
         
         var sheetContentView = [_settingsWindow contentView];
@@ -207,37 +209,64 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 
         // Description Info
         var infoLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 15, CGRectGetWidth(sheetBounds) - 30, 40)];
-        [infoLabel setStringValue:@"Configure your local or remote Ollama endpoint configuration and model identifier below."];
+        [infoLabel setStringValue:@"Configure your local or remote LLM configuration (Ollama or Groq API)."];
         [infoLabel setFont:[CPFont systemFontOfSize:11.0]];
         [infoLabel setTextColor:[CPColor colorWithWhite:0.3 alpha:1.0]];
         [infoLabel setLineBreakMode:CPLineBreakByWordWrapping];
         [sheetContentView addSubview:infoLabel];
 
+        // Service Type
+        var serviceLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 60, 110, 20)];
+        [serviceLabel setStringValue:@"Service Type:"];
+        [serviceLabel setFont:[CPFont systemFontOfSize:12.0]];
+        [serviceLabel setAlignment:CPRightTextAlignment];
+        [sheetContentView addSubview:serviceLabel];
+
+        _servicePopUp = [[CPPopUpButton alloc] initWithFrame:CGRectMake(135, 57, 150, 26) pullsDown:NO];
+        [_servicePopUp addItemWithTitle:@"Ollama"];
+        [[_servicePopUp lastItem] setRepresentedObject:@"ollama"];
+        [_servicePopUp addItemWithTitle:@"Groq API"];
+        [[_servicePopUp lastItem] setRepresentedObject:@"groq"];
+        [sheetContentView addSubview:_servicePopUp];
+
         // Endpoint Target URL
-        var endpointLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 60, 110, 20)];
+        var endpointLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 95, 110, 20)];
         [endpointLabel setStringValue:@"Ollama API URL:"];
         [endpointLabel setFont:[CPFont systemFontOfSize:12.0]];
         [endpointLabel setAlignment:CPRightTextAlignment];
         [sheetContentView addSubview:endpointLabel];
 
-        _endpointField = [[CPTextField alloc] initWithFrame:CGRectMake(135, 57, CGRectGetWidth(sheetBounds) - 155, 24)];
+        _endpointField = [[CPTextField alloc] initWithFrame:CGRectMake(135, 92, CGRectGetWidth(sheetBounds) - 155, 24)];
         [_endpointField setEditable:YES];
         [_endpointField setBezeled:YES];
         [_endpointField setFont:[CPFont systemFontOfSize:12.0]];
         [sheetContentView addSubview:_endpointField];
 
         // Model String Selector
-        var modelLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 95, 110, 20)];
+        var modelLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 130, 110, 20)];
         [modelLabel setStringValue:@"Model Name:"];
         [modelLabel setFont:[CPFont systemFontOfSize:12.0]];
         [modelLabel setAlignment:CPRightTextAlignment];
         [sheetContentView addSubview:modelLabel];
 
-        _modelField = [[CPTextField alloc] initWithFrame:CGRectMake(135, 92, CGRectGetWidth(sheetBounds) - 155, 24)];
+        _modelField = [[CPTextField alloc] initWithFrame:CGRectMake(135, 127, CGRectGetWidth(sheetBounds) - 155, 24)];
         [_modelField setEditable:YES];
         [_modelField setBezeled:YES];
         [_modelField setFont:[CPFont systemFontOfSize:12.0]];
         [sheetContentView addSubview:_modelField];
+
+        // Groq API Key
+        var apiKeyLabel = [[CPTextField alloc] initWithFrame:CGRectMake(15, 165, 110, 20)];
+        [apiKeyLabel setStringValue:@"Groq API Key:"];
+        [apiKeyLabel setFont:[CPFont systemFontOfSize:12.0]];
+        [apiKeyLabel setAlignment:CPRightTextAlignment];
+        [sheetContentView addSubview:apiKeyLabel];
+
+        _apiKeyField = [[CPTextField alloc] initWithFrame:CGRectMake(135, 162, CGRectGetWidth(sheetBounds) - 155, 24)];
+        [_apiKeyField setEditable:YES];
+        [_apiKeyField setBezeled:YES];
+        [_apiKeyField setFont:[CPFont systemFontOfSize:12.0]];
+        [sheetContentView addSubview:_apiKeyField];
 
         // Action Buttons
         var btnY = CGRectGetHeight(sheetBounds) - 45;
@@ -255,11 +284,18 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
         [sheetContentView addSubview:saveBtn];
     }
 
-    [_settingsWindow setTitle:@"Ollama Configuration"];
+    [_settingsWindow setTitle:@"AI Service Configuration"];
     
     var defaults = [CPUserDefaults standardUserDefaults];
-    [_endpointField setStringValue:[defaults objectForKey:@"OllamaEndpoint"]];
-    [_modelField setStringValue:[defaults objectForKey:@"OllamaModel"]];
+    var serviceType = [defaults objectForKey:@"ServiceType"] || @"ollama";
+    if (serviceType === @"groq") {
+        [_servicePopUp selectItemAtIndex:1];
+    } else {
+        [_servicePopUp selectItemAtIndex:0];
+    }
+    [_endpointField setStringValue:[defaults objectForKey:@"OllamaEndpoint"] || @""];
+    [_modelField setStringValue:[defaults objectForKey:@"OllamaModel"] || @""];
+    [_apiKeyField setStringValue:[defaults objectForKey:@"GroqAPIKey"] || @""];
 
     [CPApp beginSheet:_settingsWindow
         modalForWindow:[_editorTextView window]
@@ -277,11 +313,14 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
 - (void)saveSettings:(id)sender
 {
     var defaults = [CPUserDefaults standardUserDefaults];
+    var selectedService = [[_servicePopUp selectedItem] representedObject] || @"ollama";
+    [defaults setObject:selectedService forKey:@"ServiceType"];
     [defaults setObject:[_endpointField stringValue] forKey:@"OllamaEndpoint"];
     [defaults setObject:[_modelField stringValue] forKey:@"OllamaModel"];
+    [defaults setObject:[_apiKeyField stringValue] forKey:@"GroqAPIKey"];
     
     [self closeSettingsSheet:sender];
-    [_statusLabel setStringValue:@"Ollama configuration updated and saved."];
+    [_statusLabel setStringValue:@"AI configuration updated and saved."];
 }
 
 // --- UNIFIED IMPORT & EXPORT SESSION DATA ---
@@ -429,32 +468,35 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
     [_analyzeButton setEnabled:NO];
     [_languagePopUp setEnabled:NO];
     [_transferButton setEnabled:NO];
-    [_settingsButton setEnabled:NO];
     [_statusLabel setStringValue:@"Analyzing document... Progress: 0%"];
 
-    var runId = [[_languagePopUp selectedItem] tag] || 48;
+    var langCode = [[_languagePopUp selectedItem] representedObject] || @"en";
 
     for (var i = 0; i < _totalParagraphs; i++) {
-        [self analyzeParagraph:paragraphs[i] index:i runId:runId];
+        [self analyzeParagraph:paragraphs[i] index:i langCode:langCode];
     }
 }
 
-- (void)analyzeParagraph:(CPString)pText index:(int)pIndex runId:(int)runId
+- (void)analyzeParagraph:(CPString)pText index:(int)pIndex langCode:(CPString)langCode
 {
     var request = [CPURLRequest requestWithURL:@"/DBB/analyze_paragraph"];
     [request setHTTPMethod:@"POST"];
     [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
 
     var defaults = [CPUserDefaults standardUserDefaults];
+    var serviceType = [defaults objectForKey:@"ServiceType"] || @"ollama";
     var endpoint = [defaults objectForKey:@"OllamaEndpoint"];
     var model = [defaults objectForKey:@"OllamaModel"];
+    var apiKey = [defaults objectForKey:@"GroqAPIKey"] || @"";
 
     var payload = { 
         "text": pText, 
         "paragraph_index": pIndex, 
-        "run_id": runId,
+        "lang_code": langCode,
+        "service_type": serviceType,
         "ollama_endpoint": endpoint,
-        "ollama_model": model
+        "ollama_model": model,
+        "groq_api_key": apiKey
     };
     var postData = [CPString stringWithString:JSON.stringify(payload)];
     [request setHTTPBody:postData];
@@ -494,7 +536,6 @@ var CorrectionAlertIdentifierAttributeName = @"CorrectionAlertIdentifierAttribut
             [_analyzeButton setEnabled:YES];
             [_languagePopUp setEnabled:YES];
             [_transferButton setEnabled:YES];
-            [_settingsButton setEnabled:YES];
             [_progressBar setHidden:YES];
             [_statusLabel setStringValue:@"Analysis finalized. Correct highlighted segments."];
         }
