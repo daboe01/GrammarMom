@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  grammarmom:
+    build: .
+    container_name: grammarmom
+    ports:
+      - "3001:3001"
+    environment:
+      - MOJO_INACTIVITY_TIMEOUT=12000
+    # Allows the container to communicate with services (like Ollama) running on your host machine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
